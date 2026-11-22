@@ -262,6 +262,7 @@
   <!-- CleaningService progress messages -->
   <data name="Prog_Deleted"><value>已删除：{0}</value></data>
   <data name="Prog_Registry"><value>注册表项：{0}</value></data>
+  <data name="Prog_ShellRefreshed"><value>已刷新 Windows 外壳图标缓存</value></data>
 
   <!-- ============================================================
        SETTINGS PAGE — static XAML strings (x:Uid)
