@@ -258,6 +258,8 @@
   <data name="St_EntryScanningProgress"><value>正在扫描 {0}...</value></data>
   <data name="St_ExcludedFile"><value>已排除文件：{0}</value></data>
   <data name="St_ExcludedFolder"><value>已排除文件夹：{0}</value></data>
+  <data name="St_ProcessRunningWarning"><value>{0} 正在运行。请关闭它以清理锁定的缓存文件。</value></data>
+  <data name="St_ProcessRunningBadge"><value>运行中</value></data>
 
   <!-- CleaningService progress messages -->
   <data name="Prog_Deleted"><value>已删除：{0}</value></data>
