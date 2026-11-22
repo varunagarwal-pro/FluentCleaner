@@ -258,14 +258,10 @@
   <data name="St_EntryScanningProgress"><value>正在扫描 {0}...</value></data>
   <data name="St_ExcludedFile"><value>已排除文件：{0}</value></data>
   <data name="St_ExcludedFolder"><value>已排除文件夹：{0}</value></data>
-  <data name="St_ProcessRunningWarning"><value>{0} 正在运行。请关闭它以清理锁定的缓存文件。</value></data>
-  <data name="St_ProcessRunningBadge"><value>运行中</value></data>
 
   <!-- CleaningService progress messages -->
   <data name="Prog_Deleted"><value>已删除：{0}</value></data>
   <data name="Prog_Registry"><value>注册表项：{0}</value></data>
-  <data name="Prog_ShellRefreshed"><value>已刷新 Windows 外壳图标缓存</value></data>
-  <data name="Prog_Truncated"><value>已清空（0字节）：{0}</value></data>
 
   <!-- ============================================================
        SETTINGS PAGE — static XAML strings (x:Uid)
@@ -491,10 +487,6 @@
   <data name="Cookies_MiImport"><value>导入...</value></data>
   <data name="Cookies_MiExport"><value>导出...</value></data>
   <data name="Cookies_TextFiles"><value>文本文件</value></data>
-  <data name="Cookies_IntelligentScan"><value>✨ 智能扫描</value></data>
-  <data name="Cookies_IntelligentScanning"><value>正在扫描身份验证和登录 Cookie...</value></data>
-  <data name="Cookies_IntelligentResult"><value>已将 {0} 个登录域名添加到保留列表（共检测到 {1} 个）。</value></data>
-  <data name="Cookies_MiIntelligentScan"><value>✨ 保留智能身份验证域名</value></data>
   <data name="Cleaning_CleanedCookies"><value>已清理 {0} 个 Cookie：{1}</value></data>
 
   <data name="BtnAppMenu.ToolTipService.ToolTip"><value>设置及更多</value></data>
