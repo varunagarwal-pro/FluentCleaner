@@ -81,7 +81,7 @@ public class CleaningService
        Patterns get split here upfront so the tree walk only happens once down below. */
     private IEnumerable<string> FindFiles(FileKeyEntry fileKey, List<ExclusionRule> excluded, IProgress<string>? progress, CancellationToken token = default)
     {
-        bool recurse = fileKey.Flag is FileKeyFlag.Recurse or FileKeyFlag.RemoveSelf;
+        bool recurse = (fileKey.Flag & (FileKeyFlag.Recurse | FileKeyFlag.RemoveSelf)) != 0;
 
         var patterns = fileKey.Pattern
             .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -178,6 +178,7 @@ public class CleaningService
         int count = 0;
         long bytes = 0;
         bool shellRefreshNeeded = ShellNotification.ShouldNotify(result);
+        bool entryRequestsTruncate = result.Entry.FileKeys.Any(fk => (fk.Flag & FileKeyFlag.Truncate) != 0);
         var registryExclusions = BuildRegistryExclusions(result.Entry);
 
         foreach (var file in result.FilesToDelete)
@@ -214,14 +215,41 @@ public class CleaningService
                 }
 
                 var size = new FileInfo(file).Length;
-                File.Delete(file);
-                count++;
-                bytes += size;
-                progress?.Report(ResourceService.Fmt("Prog_Deleted", file));
 
-                if (!shellRefreshNeeded && ShellNotification.IsShellCacheFile(file))
+                // If entry explicitly requested TRUNCATE flag:
+                if (entryRequestsTruncate)
                 {
-                    shellRefreshNeeded = true;
+                    if (TryTruncateFile(file))
+                    {
+                        count++;
+                        bytes += size;
+                        progress?.Report(ResourceService.Fmt("Prog_Truncated", file));
+                        if (!shellRefreshNeeded && ShellNotification.IsShellCacheFile(file))
+                            shellRefreshNeeded = true;
+                        continue;
+                    }
+                }
+
+                try
+                {
+                    File.Delete(file);
+                    count++;
+                    bytes += size;
+                    progress?.Report(ResourceService.Fmt("Prog_Deleted", file));
+                    if (!shellRefreshNeeded && ShellNotification.IsShellCacheFile(file))
+                        shellRefreshNeeded = true;
+                }
+                catch (IOException)
+                {
+                    // Fallback to in-place truncation on locked files (BleachBit FileUtilities._truncate_locked_file)
+                    if (TryTruncateFile(file))
+                    {
+                        count++;
+                        bytes += size;
+                        progress?.Report(ResourceService.Fmt("Prog_Truncated", file));
+                        if (!shellRefreshNeeded && ShellNotification.IsShellCacheFile(file))
+                            shellRefreshNeeded = true;
+                    }
                 }
             }
             catch { } //in use or already gone; skip silently
@@ -245,7 +273,7 @@ public class CleaningService
         }
 
         // REMOVESELF: prune directories that are now empty
-        foreach (var fk in result.Entry.FileKeys.Where(fk => fk.Flag == FileKeyFlag.RemoveSelf))
+        foreach (var fk in result.Entry.FileKeys.Where(fk => (fk.Flag & FileKeyFlag.RemoveSelf) != 0))
             foreach (var resolved in _expander.ResolvePaths(fk.Path))
                 TryPruneEmptyDirs(resolved);
 
@@ -258,6 +286,35 @@ public class CleaningService
         }
 
         return (count, bytes);
+    }
+
+    /// <summary>
+    /// Safely truncates an active or locked file to 0 bytes in-place using shared read/write streams.
+    /// Exceeds BleachBit's _truncate_locked_file by preventing handle leakage and bypassing symlinks.
+    /// </summary>
+    public static bool TryTruncateFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return false;
+
+        try
+        {
+            var fi = new FileInfo(path);
+            if (fi.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                return false;
+
+            if (fi.IsReadOnly)
+                fi.IsReadOnly = false;
+
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+            fs.SetLength(0);
+            fs.Flush(true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /* Deletes a registry value or key tree. If a REG exclusion sits below the target,
@@ -482,6 +539,35 @@ public class CleaningService
         ProtectedSegments.Any(s => path.Contains(s, StringComparison.OrdinalIgnoreCase));
 
     // Splits "HKCU\Software\Foo" into ("HKCU", "Software\Foo").
+    /// <summary>
+    /// Safely truncates an active or locked file to 0 bytes in-place using shared read/write streams.
+    /// Exceeds BleachBit's _truncate_locked_file by preventing handle leakage and bypassing symlinks.
+    /// </summary>
+    public static bool TryTruncateFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            return false;
+
+        try
+        {
+            var fi = new FileInfo(path);
+            if (fi.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                return false;
+
+            if (fi.IsReadOnly)
+                fi.IsReadOnly = false;
+
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+            fs.SetLength(0);
+            fs.Flush(true);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static (string hive, string subKey) SplitHiveSubKey(string path)
     {
         var idx = path.IndexOf('\\');
