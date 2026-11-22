@@ -3,7 +3,7 @@
 ![Status](https://img.shields.io/badge/status-100%25%20Complete-brightgreen)
 ![Framework](https://img.shields.io/badge/framework-.NET%2010%20%7C%20WinUI%203-blue)
 ![Architecture](https://img.shields.io/badge/arch-64--bit%20(win--x64%20%7C%20win--arm64)-orange)
-![Milestones](https://img.shields.io/badge/Completed%20Tasks-28%2F28-brightgreen)
+![Milestones](https://img.shields.io/badge/Completed%20Tasks-29%2F29-brightgreen)
 
 > [!IMPORTANT]
 > **Implementation Scope & Governance Rules:**
@@ -117,6 +117,7 @@
 - ✅ **8.4** — **Cookies Found & Kept Ascending Sort:** Guarantee strict ascending alphabetical ordering in `CookiesSettingsView.xaml.cs` and `CookieService.cs` across "Cookies found" and "Cookies to keep" using `StringComparer.OrdinalIgnoreCase`.
 - ✅ **8.5** — **Settings About Placement (Always Last):** Move `About` to the final/last position in `SettingsNav` in `SettingsPage.xaml`, with feature tabs (`AI`, `Cookies`, `Exclusions`, `General`, `History`, `Tasks`, `Scheduler`) sorted ascending, and `General` set to `SelectedIndex="3"` by default.
 - ✅ **8.6** — **Cleaner Category Sub-Options Alphabetical Sort:** Sort all child entries/checkboxes within every category in `CleanerPageViewModel.cs` using `group.OrderBy(x => x.Entry.Name, StringComparer.OrdinalIgnoreCase)`.
+- ✅ **8.7** — **Scan Results Descending Sort by File Size:** Enforce descending file size sorting across cleaner results in `CleanerPageViewModel.cs` using `.OrderByDescending(l => l.Result?.TotalBytes ?? 0).ThenBy(l => l.AppName, StringComparer.OrdinalIgnoreCase)`, invoked automatically after scan completion across full, category, and single-entry scopes.
 
 ---
 
@@ -137,3 +138,4 @@
 | **2026-11-22** | Phase 8 Completion (§8) | Completed UI & Navigation Enhancements across Cleaner categories, live resizable pane splitter, Settings nav menu, and Cookies found/kept lists. Merged feat/sqlite-vacuum-compactor, chore/upstream-sync-version-bump, and feat/ui-enhancements into sentinel-customization. Built Release x64 package to D:\Program\FluentCleaner. (Receipts: ev-20261122T120630Z-c69c, ev-20261122T120609Z-143d, ev-20261122T120649Z-0ff4, ev-20261122T120705Z-305a). | Antigravity |
 | **2026-11-22** | Scope Expansion (§8.5–8.6) | Added Tasks 8.5 (Settings "About" always last) and 8.6 (Cleaner category sub-options alphabetical sorting) under feat/ui-enhancements. Staged plan update at temp/plan_upstream_sync_and_ui_fixes.md. Total tasks updated to 28. | Antigravity |
 | **2026-11-22** | Phase 8 Refinements (§8.5–8.6) | Repositioned Settings "About" to the last position with General selected by default. Enforced strict alphabetical sorting across cleaner sub-options inside each category. Merged feat/ui-enhancements to sentinel-customization and published updated Release win-x64 build to D:\Program\FluentCleaner. (Receipts: ev-20261122T122638Z-b37a, ev-20261122T122646Z-7edc, ev-20261122T122655Z-5cbb). | Antigravity |
+| **2026-11-22** | Phase 8 Refinement (§8.7) | Enforced descending file size sorting across cleaner scan results with alphabetical tie-breaking, wired into full, category, and single-entry scan flows. Merged feat/ui-enhancements to sentinel-customization. Total tasks updated to 29. | Antigravity |
