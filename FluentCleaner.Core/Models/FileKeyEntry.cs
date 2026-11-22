@@ -1,4 +1,5 @@
 using System;
+using System.Text.RegularExpressions;
 
 namespace FluentCleaner.Models;
 
@@ -13,7 +14,7 @@ public enum FileKeyFlag
 }
 
 /* Parsed representation of one FileKeyN= line from Winapp2.ini.
-   Format:  FileKey1=<path>|<pattern(s)>[|RECURSE|REMOVESELF|TRUNCATE]
+   Format:  FileKey1=<path>|<pattern(s)>[|RECURSE|REMOVESELF|TRUNCATE][|wholeregex=<regex>][|nwholeregex=<regex>]
    Example: FileKey1=%LocalAppData%\Temp|*.tmp;*.log|RECURSE */
 public class FileKeyEntry
 {
@@ -27,30 +28,50 @@ public class FileKeyEntry
     // Whether to recurse into subdirectories, remove empty dirs afterwards, or truncate in-place.
     public FileKeyFlag Flag { get; set; } = FileKeyFlag.None;
 
+    // Compiled regex for full path inclusion (BleachBit 'wholeregex')
+    public Regex? IncludeRegex { get; set; }
+    public string? IncludeRegexPattern { get; set; }
+
+    // Compiled regex for full path exclusion (BleachBit 'nwholeregex')
+    public Regex? ExcludeRegex { get; set; }
+    public string? ExcludeRegexPattern { get; set; }
+
     public static FileKeyEntry Parse(string value)
     {
         var parts = value.Split('|');
         var entry = new FileKeyEntry { Path = parts[0].Trim() };
 
-        // parts[1] can be either a file pattern OR a flag (when no pattern is given)
-        if (parts.Length == 2)
+        for (int i = 1; i < parts.Length; i++)
         {
-            var p = parts[1].Trim();
-            if (TryParseFlag(p, out var flag))
+            var p = parts[i].Trim();
+            if (string.IsNullOrEmpty(p)) continue;
+
+            if (p.StartsWith("wholeregex=", StringComparison.OrdinalIgnoreCase) ||
+                p.StartsWith("include_regex=", StringComparison.OrdinalIgnoreCase) ||
+                p.StartsWith("regex=", StringComparison.OrdinalIgnoreCase))
             {
-                entry.Flag = flag;
+                var pattern = p.Substring(p.IndexOf('=') + 1).Trim();
+                entry.IncludeRegexPattern = pattern;
+                try { entry.IncludeRegex = new Regex(pattern, RegexOptions.Compiled | RegexOptions.IgnoreCase); }
+                catch { }
             }
-            else
+            else if (p.StartsWith("nwholeregex=", StringComparison.OrdinalIgnoreCase) ||
+                     p.StartsWith("exclude_regex=", StringComparison.OrdinalIgnoreCase) ||
+                     p.StartsWith("nregex=", StringComparison.OrdinalIgnoreCase))
             {
+                var pattern = p.Substring(p.IndexOf('=') + 1).Trim();
+                entry.ExcludeRegexPattern = pattern;
+                try { entry.ExcludeRegex = new Regex(pattern, RegexOptions.Compiled | RegexOptions.IgnoreCase); }
+                catch { }
+            }
+            else if (TryParseFlag(p, out var flag))
+            {
+                entry.Flag |= flag;
+            }
+            else if (i == 1)
+            {
+                // First segment after path is the file pattern if not a flag or regex
                 entry.Pattern = p;
-            }
-        }
-        else if (parts.Length > 2)
-        {
-            entry.Pattern = parts[1].Trim();
-            if (TryParseFlag(parts[2].Trim(), out var flag))
-            {
-                entry.Flag = flag;
             }
         }
 
