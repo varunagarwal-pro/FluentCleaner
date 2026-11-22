@@ -1,9 +1,9 @@
 # 📋 FluentCleaner — Master Implementation & Capability Ledger
 
-![Status](https://img.shields.io/badge/status-100%25%20Complete-brightgreen)
+![Status](https://img.shields.io/badge/status-In%20Progress-blue)
 ![Framework](https://img.shields.io/badge/framework-.NET%2010%20%7C%20WinUI%203-blue)
 ![Architecture](https://img.shields.io/badge/arch-64--bit%20(win--x64%20%7C%20win--arm64)-orange)
-![Milestones](https://img.shields.io/badge/Completed%20Tasks-26%2F26-brightgreen)
+![Milestones](https://img.shields.io/badge/Completed%20Tasks-26%2F28-blue)
 
 > [!IMPORTANT]
 > **Implementation Scope & Governance Rules:**
@@ -115,6 +115,8 @@
 - ✅ **8.2** — **Interactive Resizable Pane Divider:** Implement pointer-drag resizable splitter in `CleanerPage.xaml` / `CleanerPage.xaml.cs` with `SizeWestEast` cursor, min/max bounds, real-time readjustment, and persistent `CleanerPaneWidth` in `AppSettings.cs`.
 - ✅ **8.3** — **Settings Navigation Menu Ascending Sort:** Sort navigation menu items in `SettingsPage.xaml` in ascending alphabetical order (`About`, `AI`, `Cookies`, `Exclusions`, `General`, `History`, `Tasks`, `Scheduler`) while maintaining default landing on `General`.
 - ✅ **8.4** — **Cookies Found & Kept Ascending Sort:** Guarantee strict ascending alphabetical ordering in `CookiesSettingsView.xaml.cs` and `CookieService.cs` across "Cookies found" and "Cookies to keep" using `StringComparer.OrdinalIgnoreCase`.
+- ⬜ **8.5** — **Settings "About" Placement (Always Last):** Move `About` to the final/last position in `SettingsNav` in `SettingsPage.xaml`, with feature tabs (`AI`, `Cookies`, `Exclusions`, `General`, `History`, `Tasks`, `Scheduler`) sorted ascending, and `General` set to `SelectedIndex="3"` by default.
+- ⬜ **8.6** — **Cleaner Category Sub-Options Alphabetical Sort:** Sort all child entries/checkboxes within every category in `CleanerPageViewModel.cs` using `group.OrderBy(x => x.Entry.Name, StringComparer.OrdinalIgnoreCase)`.
 
 ---
 
@@ -133,3 +135,4 @@
 | **2026-11-22** | Phase 7 Completion (§7) | Implemented Advanced Cookie Manager with Scalable Whitelist SQL Architecture (PopulateTempDomainTable in WinSqlite.cs, indexed parent domain lookups in CookieService.cs), IntelligentDomains.cs knowledge base (Google, Microsoft, Apple, GitHub, X, Amazon, etc.), and 1-click Intelligent Auto-Scan UI button and context flyout in CookiesSettingsView.xaml. Benchmarked against 1,000+ domain keep-list: 13.4ms execution, 0 expression depth errors, 100% preservation. Clean 64-bit builds on Core and App. (Receipts: ev-20261122T050041Z-a166, ev-20261122T050041Z-564d, ev-20261122T050121Z-8dae, ev-20261122T050042Z-ee37). | Antigravity |
 | **2026-11-22** | Scope Expansion (§8) | Added §8 (Tasks 8.1–8.4) in Tasks.md and updated plan at `temp/plan_upstream_sync_and_ui_fixes.md` for UI Enhancements (Category Ascending Sort, Live Interactive Resizable Pane Divider, Settings Navigation Ascending Sort, Cookies Found & Kept Ascending Sort) under `feat/ui-enhancements`. Total tasks updated to 26. | Antigravity |
 | **2026-11-22** | Phase 8 Completion (§8) | Completed UI & Navigation Enhancements across Cleaner categories, live resizable pane splitter, Settings nav menu, and Cookies found/kept lists. Merged feat/sqlite-vacuum-compactor, chore/upstream-sync-version-bump, and feat/ui-enhancements into sentinel-customization. Built Release x64 package to D:\Program\FluentCleaner. (Receipts: ev-20261122T120630Z-c69c, ev-20261122T120609Z-143d, ev-20261122T120649Z-0ff4, ev-20261122T120705Z-305a). | Antigravity |
+| **2026-11-22** | Scope Expansion (§8.5–8.6) | Added Tasks 8.5 (Settings "About" always last) and 8.6 (Cleaner category sub-options alphabetical sorting) under feat/ui-enhancements. Staged plan update at temp/plan_upstream_sync_and_ui_fixes.md. Total tasks updated to 28. | Antigravity |
