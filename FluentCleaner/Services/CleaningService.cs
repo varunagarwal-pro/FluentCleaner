@@ -566,35 +566,6 @@ public class CleaningService
         ProtectedSegments.Any(s => path.Contains(s, StringComparison.OrdinalIgnoreCase));
 
     // Splits "HKCU\Software\Foo" into ("HKCU", "Software\Foo").
-    /// <summary>
-    /// Safely truncates an active or locked file to 0 bytes in-place using shared read/write streams.
-    /// Exceeds BleachBit's _truncate_locked_file by preventing handle leakage and bypassing symlinks.
-    /// </summary>
-    public static bool TryTruncateFile(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            return false;
-
-        try
-        {
-            var fi = new FileInfo(path);
-            if (fi.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                return false;
-
-            if (fi.IsReadOnly)
-                fi.IsReadOnly = false;
-
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
-            fs.SetLength(0);
-            fs.Flush(true);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private static (string hive, string subKey) SplitHiveSubKey(string path)
     {
         var idx = path.IndexOf('\\');
