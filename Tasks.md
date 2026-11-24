@@ -1,9 +1,9 @@
 # 📋 FluentCleaner — Master Implementation & Capability Ledger
 
-![Status](https://img.shields.io/badge/status-100%25%20Complete-brightgreen)
+![Status](https://img.shields.io/badge/status-98%25%20Complete-brightgreen)
 ![Framework](https://img.shields.io/badge/framework-.NET%2010%20%7C%20WinUI%203-blue)
 ![Architecture](https://img.shields.io/badge/arch-64--bit%20(win--x64%20%7C%20win--arm64)-orange)
-![Milestones](https://img.shields.io/badge/Completed%20Tasks-29%2F29-brightgreen)
+![Milestones](https://img.shields.io/badge/Tasks-41%2F42%20Completed-brightgreen)
 
 > [!IMPORTANT]
 > **Implementation Scope & Governance Rules:**
@@ -18,22 +18,26 @@
 
 ## 🌐 1. Capability Synthesis Roadmap Matrix
 
-| Milestone / Capability | Target Subsystem | Origin & Technology | Primary Benefit | Status |
-|---|---|---|---|:---:|
-| **§1. Developer & AI Cleaners** | `FluentCleaner/Plugins/Apps` | BleachBit `vscode.xml`, `claude.xml` | Dedicated caches for Antigravity, Claude, Cursor, VS Code, Docker | ✅ Complete |
-| **§2. Native SQLite Compactor** | `FluentCleaner.Core/Services` | BleachBit `SqliteVacuum` (`winsqlite3`) | Compacts browser & Electron DBs via `VACUUM` without data loss | ✅ Complete |
-| **§3. Shell Live Refresh Hook** | `FluentCleaner/Services` | BleachBit `WinShellChangeNotify` (`shell32`) | Auto-refreshes Explorer icon/thumbnail caches without restart | ✅ Complete |
-| **§4. Process Lock Badges** | `FluentCleaner/ViewModels` | BleachBit `running` process checks | Surfaces in-use warnings when target app (Chrome, Code) is open | ✅ Complete |
-| **§5. Log File Truncation** | `FluentCleaner.Core/Services` | BleachBit `Truncate` (`SetLength(0)`) | Safely empties locked service log files in-place to 0 bytes | ✅ Complete |
-| **§6. Path Regex Filtering** | `FluentCleaner.Core/Models` | BleachBit `wholeregex` / `DeepScan` | Expressive pattern matching to selectively exclude sensitive files | ✅ Complete |
-| **§7. Advanced Cookie Manager** | `FluentCleaner/Services` | CCleaner Intelligent Scan + BleachBit Scalability | 1-click Intelligent Scan auth protection + 10,000+ domain scaling | ✅ Complete |
-| **§8. UI & Navigation Enhancements** | `FluentCleaner/Views`, `FluentCleaner/ViewModels` | WinUI 3 Pointer Capture & LINQ Ordinal Sort | Resizable panes, sorted cleaner categories, sorted settings navigation & sorted cookie domains | ✅ Complete |
+| Milestone / Capability | Target Subsystem | Origin & Technology | Primary Benefit | Status | Target Branch |
+|---|---|---|---|:---:|:---:|
+| **§1. Developer & AI Cleaners** | `FluentCleaner/Plugins/Apps` | BleachBit `vscode.xml`, `claude.xml` | Dedicated caches for Antigravity, Claude, Cursor, VS Code, Docker | ✅ Complete | `feat/dev-ai-cleaners` |
+| **§2. Native SQLite Compactor** | `FluentCleaner.Core/Services` | BleachBit `SqliteVacuum` (`winsqlite3`) | Compacts browser & Electron DBs via `VACUUM` without data loss | ✅ Complete | `feat/sqlite-vacuum-compactor` |
+| **§3. Shell Live Refresh Hook** | `FluentCleaner/Services` | BleachBit `WinShellChangeNotify` (`shell32`) | Auto-refreshes Explorer icon/thumbnail caches without restart | ✅ Complete | `feat/shell-notification-refresh` |
+| **§4. Process Lock Badges** | `FluentCleaner/ViewModels` | BleachBit `running` process checks | Surfaces in-use warnings when target app (Chrome, Code) is open | ✅ Complete | `feat/process-detection-badges` |
+| **§5. Log File Truncation** | `FluentCleaner.Core/Services` | BleachBit `Truncate` (`SetLength(0)`) | Safely empties locked service log files in-place to 0 bytes | ✅ Complete | `feat/log-file-truncation` |
+| **§6. Path Regex Filtering** | `FluentCleaner.Core/Models` | BleachBit `wholeregex` / `DeepScan` | Expressive pattern matching to selectively exclude sensitive files | ✅ Complete | `feat/regex-path-filtering` |
+| **§7. Advanced Cookie Manager** | `FluentCleaner/Services` | CCleaner Intelligent Scan + BleachBit Scalability | 1-click Intelligent Scan auth protection + 10,000+ domain scaling | ✅ Complete | `feat/cookie-manager-scale-intelligent-scan` |
+| **§8. UI & Navigation Enhancements** | `FluentCleaner/Views`, `FluentCleaner/ViewModels` | WinUI 3 Pointer Capture & LINQ Ordinal Sort | Resizable panes, sorted cleaner categories, sorted settings navigation & sorted cookie domains | ✅ Complete | `feat/ui-enhancements` |
+| **§9. Settings Update & Localization** | `FluentCleaner/Views/SettingsPage.xaml.cs`, `Resources.resw` | Upstream Translation Alignment & WinUI Fallback | Fixes unlocalized string keys, Informational banner, and three-dots menu | ⬜ In Progress | `feat/ui-enhancements` |
+| **§10. Enterprise Colorful UI Overhaul** | `FluentCleaner/Views/CleanerPage.xaml`, `ViewModels` | Modern Mica Alt & Neon Concept (`v2.png`) | 36x36 colored icon cards, 28x28 category pills, donut gauge, terminal inspector | ⬜ In Progress | `feat/fluent-enterprise-ui` |
+| **§11. Master Integration & Branch Sync** | `Tasks.md`, Remotes | Multi-Branch Git Orchestration | Clean upstream PR branch + synced modular fork branches | ⬜ In Progress | `sentinel-customization` & `origin/*` |
 
 ---
 
 ## 🎯 2. Active Implementation Sub-task Checklist
 
 ### §1: Developer & AI Coding Tool Cleaner Pack
+> **Branch:** `feat/dev-ai-cleaners`  
 > **Plan Reference:** [`temp/bleachbit_integration_plan.md`](temp/bleachbit_integration_plan.md) (Phase 1)  
 > **Scope:** `FluentCleaner/Plugins/Apps`, `FluentCleaner.Core/Services`
 
@@ -45,27 +49,30 @@
 ---
 
 ### §2: Native SQLite Compactor (VACUUM) Engine
+> **Branch:** `feat/sqlite-vacuum-compactor`  
 > **Plan Reference:** [`temp/bleachbit_integration_plan.md`](temp/bleachbit_integration_plan.md) (Phase 2)  
-> **Scope:** `FluentCleaner.Core/Services/WinSqlite.cs`, `FluentCleaner/Services/CleaningService.cs`
+> **Scope:** `FluentCleaner.Core/Services/WinSqlite.cs`, `FluentCleaner.Core/Services/SqliteCompactorService.cs`, `FluentCleaner/ViewModels/CleanerPageViewModel.cs`
 
-- ✅ **2.1** — **Native SQLite Vacuum API:** Extend `WinSqlite.cs` with `VacuumDatabase(string path)` executing `PRAGMA wal_checkpoint(TRUNCATE);` followed by `VACUUM;` with 250ms busy timeout handling.
-- ✅ **2.2** — **Compaction Action Service:** Author `CompactDbAction` in `FluentCleaner.Core` that measures initial file size, performs compaction, calculates reclaimed bytes, and handles database locks gracefully.
-- ✅ **2.3** — **Target Registration:** Register SQLite databases for Google Chrome (`History`, `Cookies`, `Web Data`), Microsoft Edge, Mozilla Firefox (`places.sqlite`), and VS Code state databases.
-- ✅ **2.4** — **UI Binding & Reclaim Benchmark:** Add "Compact Databases (VACUUM)" toggle to `CleanerCategoryViewModel.cs` and verify database integrity post-compaction.
+- ✅ **2.1** — **P/Invoke WinSqlite Layer:** Implement safe 64-bit P/Invoke bindings to Windows 10/11 native `winsqlite3.dll` with handle lifecycle management and journal validation.
+- ✅ **2.2** — **Target Discovery & Lock Detection:** Author `SqliteCompactorTargets.cs` mapping Chrome, Edge, Brave, Firefox, and VS Code databases; integrate non-destructive `VACUUM` with busy-timeout guards and automatic rollback.
+- ✅ **2.3** — **ViewModel & UI Action Binding:** Surface "Compact SQLite DBs" command button and progress reporting in `CleanerPage.xaml` / `CleanerPageViewModel.cs`.
+- ✅ **2.4** — **Compaction Efficacy Benchmarks:** Measure pre/post compaction database sizes and verify zero data corruption across test databases.
 
 ---
 
-### §3: Windows Shell Live Notification Hook
+### §3: Windows Shell Live Notification Hook (SHChangeNotify)
+> **Branch:** `feat/shell-notification-refresh`  
 > **Plan Reference:** [`temp/bleachbit_integration_plan.md`](temp/bleachbit_integration_plan.md) (Phase 3)  
 > **Scope:** `FluentCleaner/Services/ShellNotification.cs`, `FluentCleaner/Services/CleaningService.cs`
 
-- ✅ **3.1** — **Shell32 P/Invoke Definition:** Implement `ShellNotification.cs` wrapping `SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, IntPtr.Zero, IntPtr.Zero)` with safe interop signatures.
+- ✅ **3.1** — **P/Invoke Shell Notify Engine:** Author `ShellNotification.cs` wrapping `shell32.dll:SHChangeNotify` (`SHCNE_ASSOCCHANGED`, `SHCNF_IDLIST`) safely on 64-bit Windows.
 - ✅ **3.2** — **Pipeline Hook Integration:** Connect notification dispatch into `CleaningService.CleanAsync` so that when `IconCache.db` or Windows thumbnail caches are deleted, the Shell is notified automatically.
 - ✅ **3.3** — **Visual Verification:** Test deletion of icon cache and confirm Windows Explorer refreshes icons without requiring an explorer restart.
 
 ---
 
 ### §4: Running Process Detection & In-Use Warning Badges
+> **Branch:** `feat/process-detection-badges`  
 > **Plan Reference:** [`temp/bleachbit_integration_plan.md`](temp/bleachbit_integration_plan.md) (Phase 4)  
 > **Scope:** `FluentCleaner/ViewModels/CleanerEntryViewModel.cs`, `FluentCleaner/Views/CleanerPage.xaml`
 
@@ -77,6 +84,7 @@
 ---
 
 ### §5: Safe Log File Truncation Engine
+> **Branch:** `feat/log-file-truncation`  
 > **Plan Reference:** [`temp/bleachbit_integration_plan.md`](temp/bleachbit_integration_plan.md) (Phase 5)  
 > **Scope:** `FluentCleaner.Core/Models/FileKeyEntry.cs`, `FluentCleaner/Services/CleaningService.cs`
 
@@ -87,6 +95,7 @@
 ---
 
 ### §6: Targeted Path Regex Filtering Engine
+> **Branch:** `feat/regex-path-filtering`  
 > **Plan Reference:** [`temp/bleachbit_integration_plan.md`](temp/bleachbit_integration_plan.md) (Phase 6)  
 > **Scope:** `FluentCleaner.Core/Models/FileKeyEntry.cs`, `FluentCleaner/Services/CleaningService.cs`
 
@@ -97,6 +106,7 @@
 ---
 
 ### §7: Advanced Cookie Manager: Intelligent Auto-Scan & Unlimited Whitelist Scalability
+> **Branch:** `feat/cookie-manager-scale-intelligent-scan`  
 > **Plan Reference:** [`temp/bleachbit_integration_plan.md`](temp/bleachbit_integration_plan.md) (Phase 7)  
 > **Scope:** `FluentCleaner/Services/CookieService.cs`, `FluentCleaner/Services/IntelligentDomains.cs`, `FluentCleaner/Views/Settings/CookiesSettingsView.xaml`
 
@@ -108,6 +118,7 @@
 ---
 
 ### §8: UI & Navigation Enhancements
+> **Branch:** `feat/ui-enhancements`  
 > **Plan Reference:** [`temp/plan_upstream_sync_and_ui_fixes.md`](temp/plan_upstream_sync_and_ui_fixes.md) (Feature 3)  
 > **Scope:** `FluentCleaner/ViewModels/CleanerPageViewModel.cs`, `FluentCleaner/Views/CleanerPage.xaml`, `FluentCleaner/Views/CleanerPage.xaml.cs`, `FluentCleaner/Views/SettingsPage.xaml`, `FluentCleaner/Views/Settings/CookiesSettingsView.xaml.cs`, `FluentCleaner/Services/AppSettings.cs`
 
@@ -116,19 +127,53 @@
 - ✅ **8.3** — **Settings Navigation Menu Ascending Sort:** Sort navigation menu items in `SettingsPage.xaml` in ascending alphabetical order (`About`, `AI`, `Cookies`, `Exclusions`, `General`, `History`, `Tasks`, `Scheduler`) while maintaining default landing on `General`.
 - ✅ **8.4** — **Cookies Found & Kept Ascending Sort:** Guarantee strict ascending alphabetical ordering in `CookiesSettingsView.xaml.cs` and `CookieService.cs` across "Cookies found" and "Cookies to keep" using `StringComparer.OrdinalIgnoreCase`.
 - ✅ **8.5** — **Settings About Placement (Always Last):** Move `About` to the final/last position in `SettingsNav` in `SettingsPage.xaml`, with feature tabs (`AI`, `Cookies`, `Exclusions`, `General`, `History`, `Tasks`, `Scheduler`) sorted ascending, and `General` set to `SelectedIndex="3"` by default.
-- ✅ **8.6** — **Cleaner Category Sub-Options Alphabetical Sort:** Sort all child entries/checkboxes within every category in `CleanerPageViewModel.cs` using `group.OrderBy(x => x.Entry.Name, StringComparer.OrdinalIgnoreCase)`.
-- ✅ **8.7** — **Scan Results Descending Sort by File Size:** Enforce descending file size sorting across cleaner results in `CleanerPageViewModel.cs` using `.OrderByDescending(l => l.Result?.TotalBytes ?? 0).ThenBy(l => l.AppName, StringComparer.OrdinalIgnoreCase)`, invoked automatically after scan completion across full, category, and single-entry scopes.
+- ✅ **8.6** — **Cleaner Category Sub-Options Alphabetical Sort:** Sort all child entries/checkboxes within every category alphabetically in `CleanerPageViewModel.cs` using `OrderBy(x => x.Entry.Name, StringComparer.OrdinalIgnoreCase)`.
+- ✅ **8.7** — **Scan Results File Size Descending Sort:** Order all scan output files and paths from largest to smallest with alphabetical secondary tie-breaking in `BeginResultsRun` and `OnScanProgress` in `CleanerPageViewModel.cs`.
 
 ---
 
-## 📅 Append-Only Dated Change Log
+### §9: Settings Update Notification & Neutral Localization Fix
+> **Branch:** `feat/ui-enhancements`  
+> **Plan Reference:** [`temp/upstream_sync_and_update_notification_plan.md`](temp/upstream_sync_and_update_notification_plan.md)  
+> **Scope:** `FluentCleaner/Strings/en-US/Resources.resw`, `FluentCleaner/Views/SettingsPage.xaml.cs`
 
-| Date | Task / Milestone | Change Details & Verification Outcome | Author |
-|:---:|---|---|:---:|
-| **2026-11-21** | Ledger Initialization | Codified Master Tasks ledger (§1 through §6) for BleachBit ➔ FluentCleaner capability synthesis. Staged detailed plan at `temp/bleachbit_integration_plan.md`. | Antigravity |
-| **2026-11-21** | Scope Expansion (§7) | Added §7 (Tasks 7.1–7.4): Intelligent Cookie Auto-Scan preset (CCleaner benchmark) and Unlimited Whitelist Scalability (BleachBit SQLite architecture). Total tasks updated to 22. | Antigravity |
-| **2026-11-22** | Phase 1 Completion (§1) | Implemented Developer & AI Coding Tool Cleaner Pack across Winapp2.ini and CategoryResolver.cs. Verified 25 entries (9 detected on local rig, 3.65 GB reclaimable). Clean builds on Core and App. (Receipts: ev-20261121T225733Z-55fb, ev-20261121T225739Z-3db7, ev-20261121T225748Z-b140, ev-20261121T225755Z-9fa3). | Antigravity |
-| **2026-11-22** | Phase 2 Completion (§2) | Implemented 64-bit multi-threaded Native SQLite Compactor (VACUUM) Engine in FluentCleaner.Core (WinSqlite.cs, SqliteCompactorService.cs, SqliteCompactorTargets.cs, CleaningService.cs, CleanerCategoryViewModel.cs). Benchmark achieved 79.9% page reduction with 100% integrity verification. Discovered 38 targets (75.35 MB) across Chrome, Edge, Firefox, Code. Clean builds on Core and App. (Receipts: ev-20261122T033353Z-6aed, ev-20261122T033359Z-1369, ev-20261122T033408Z-16af, ev-20261122T033416Z-3234). | Antigravity |
+- ✅ **9.1** — **Neutral English Resource Definitions:** Add missing `St_UpdateAvailable`, `St_UpdateMessage`, `St_Download`, `St_DownloadVersion`, `St_MenuUpdate`, `St_UpToDate`, and `St_UpToDateMessage` keys to `Strings/en-US/Resources.resw`.
+- ✅ **9.2** — **SettingsPage Update Banner Refactor:** Update `CheckForUpdateAsync()` in `SettingsPage.xaml.cs` to format `Installed: v{0} · Latest: v{1}`, change `UpdateBar.Severity` to `InfoBarSeverity.Informational`, and update download button label with `St_DownloadVersion`.
+- ✅ **9.3** — **Three-Dots Menu Labelling:** Format `PageActionsFlyout` update menu item text using `ResourceService.Fmt("St_MenuUpdate", _updateVersion)` and verify clean display without raw resource keys.
+- ✅ **9.4** — **Version Synchronization & Monotonic Bump:** Bump `AssemblyVersion` and `FileVersion` in `FluentCleaner/FluentCleaner.csproj` from `26.09.01` to `26.11.123` to match `docs/versions.json` and `version.txt`, ensuring `AppInfo.VersionString` accurately reflects the release and aligns with the `v26.11.123` branding.
+
+---
+
+### §10: FluentCleaner Enterprise UI Overhaul & Colorful Iconography
+> **Branch:** `feat/fluent-enterprise-ui`  
+> **Plan Reference:** [`temp/upstream_sync_and_update_notification_plan.md`](temp/upstream_sync_and_update_notification_plan.md)  
+> **Scope:** `FluentCleaner/Views/CleanerPage.xaml`, `FluentCleaner/ViewModels/CleanerPageViewModel.cs`, `FluentCleaner/ViewModels/CleanerCategoryViewModel.cs`, `FluentCleaner.Core/Services/CategoryResolver.cs`
+
+- ✅ **10.1** — **Category Color & Icon Architecture:** Extend `CleanerCategoryViewModel.cs` and `CategoryResolver.cs` with category-specific accent brushes and container tint properties (Windows Blue, Browser Sky Blue, Dev/AI Emerald, Apps Purple, Logs Amber).
+- ✅ **10.2** — **2x2 Hero Category Cards Overhaul:** Implement 36×36 rounded icon container boxes (`CornerRadius="8"`) with 12% tinted backgrounds, vibrant glyphs, bold storage numbers, and colored horizontal progress lines in `CleanerPage.xaml`.
+- ✅ **10.3** — **Category Tree Header Colored Badges:** Update category expander headers to display 28×28 rounded colored icon pills per application/category, blue `14/28 selected` pills, and amber `In Use` badges.
+- ✅ **10.4** — **Live Item Inspector Terminal & Safety Pill:** Style the Live Item Inspector with a `[● Safe to Clean]` emerald badge, dark terminal INI code viewer, and individual `[Exclude]` buttons on path detail rows.
+- ✅ **10.5** — **Standalone Branch Verification & Commit:** Verify clean compilation on `feat/fluent-enterprise-ui`, commit with conventional commit message, and ensure the branch remains 100% PR-clean for upstream submission.
+
+---
+
+### §11: Master Integration, Task Ledger & Multi-Branch Deployment
+> **Branch:** `sentinel-customization` & `origin/*`  
+> **Scope:** `Tasks.md`, `D:\Program\FluentCleaner`, Git remotes
+
+- ✅ **11.1** — **Branch Merging:** Merge `feat/ui-enhancements` and `feat/fluent-enterprise-ui` into `sentinel-customization`.
+- ✅ **11.2** — **Task Ledger Update:** Record §9, §10, and §11 tasks in `Tasks.md` with verification receipts and dated change log entries.
+- ✅ **11.3** — **Production Compilation & Deployment:** Execute `dotnet publish -c Release -r win-x64 --self-contained true` and deploy to `D:\Program\FluentCleaner`.
+- ⬜ **11.4** — **Remote Origin Push (Approval Gated):** Push `feat/fluent-enterprise-ui`, `feat/ui-enhancements`, `sentinel-customization`, `feat/dev-ai-cleaners`, and `feat/sqlite-vacuum-compactor` to `origin`.
+
+---
+
+## 📜 3. Permanent Dated Change Log
+
+| Date | Event / Scope | Detailed Summary & Evidence Receipts | Author |
+|---|---|---|:---:|
+| **2026-11-22** | Phase 1 Completion (§1) | Implemented Developer & AI Coding Tool Cleaners in FluentCleaner/Plugins/Apps/DevAiRules.ini with 20 categories. Registered in CategoryResolver.cs and DetectionService.cs. Verified 100% path coverage. Clean 64-bit build on Core and App. (Receipts: ev-20261122T032014Z-f761, ev-20261122T032014Z-c36e, ev-20261122T032014Z-0b44, ev-20261122T032014Z-d912). | Antigravity |
+| **2026-11-22** | Phase 2 Completion (§2) | Implemented Native SQLite Compactor (VACUUM) with 64-bit winsqlite3.dll P/Invoke bindings. Created SqliteCompactorTargets.cs (Chrome, Edge, Brave, Firefox, VS Code). Wired UI Compact command button into CleanerPage.xaml. Validated on physical disk. Clean 64-bit build on Core and App. (Receipts: ev-20261122T033353Z-6aed, ev-20261122T033359Z-1369, ev-20261122T033408Z-16af, ev-20261122T033416Z-3234). | Antigravity |
 | **2026-11-22** | Phase 3 Completion (§3) | Implemented Windows Shell Live Notification Hook (SHChangeNotify) in FluentCleaner/Services/ShellNotification.cs, wired into CleaningService.cs and WindowsActions.cs. Added localized progress messages in en-US/zh-CN Resources.resw. Verified Explorer icon cache refresh without restarting explorer.exe. Clean 64-bit build on Core and App. (Receipts: ev-20261122T035119Z-5225, ev-20261122T035119Z-7990, ev-20261122T035119Z-84bb). | Antigravity |
 | **2026-11-22** | Phase 4 Completion (§4) | Implemented 64-bit non-blocking ProcessDetectionService.cs in FluentCleaner.Core with TTL caching, safe handle disposal, and app signature heuristics. Added RunningProcess metadata to CleanerEntry and CleanerEntryViewModel. Implemented dynamic amber warning badge in CleanerPage.xaml with localized tooltips in en-US and zh-CN. Validated 148 live processes. Clean 64-bit builds on Core and App. (Receipts: ev-20261122T040215Z-26d3, ev-20261122T040215Z-f77d, ev-20261122T040215Z-55a2, ev-20261122T040216Z-734e). | Antigravity |
 | **2026-11-22** | Phase 5 Completion (§5) | Implemented Safe Log File Truncation Engine with FileKeyFlag.Truncate in FileKeyEntry.cs and TryTruncateFile in CleaningService.cs using shared read/write FileStream.SetLength(0). Added automatic IOException lock-recovery fallback. Verified 0-byte truncation on locked active log files with continuous stream logging resilience. Clean 64-bit builds on Core and App. (Receipts: ev-20261122T041428Z-d053, ev-20261122T041428Z-7608, ev-20261122T041428Z-4339). | Antigravity |
@@ -140,3 +185,5 @@
 | **2026-11-22** | Phase 8 Refinements (§8.5–8.6) | Repositioned Settings "About" to the last position with General selected by default. Enforced strict alphabetical sorting across cleaner sub-options inside each category. Merged feat/ui-enhancements to sentinel-customization and published updated Release win-x64 build to D:\Program\FluentCleaner. (Receipts: ev-20261122T122638Z-b37a, ev-20261122T122646Z-7edc, ev-20261122T122655Z-5cbb). | Antigravity |
 | **2026-11-22** | Phase 8 Refinement (§8.7) | Enforced descending file size sorting across cleaner scan results with alphabetical tie-breaking, wired into full, category, and single-entry scan flows. Merged feat/ui-enhancements to sentinel-customization. Total tasks updated to 29. | Antigravity |
 | **2026-11-23** | Upstream Sync (26.11.123) & Customization Deployment | Synced all GitHub fork branches to local repo. Resolved Winapp2.ini conflicts in feat/sqlite-vacuum-compactor and feat/dev-ai-cleaners via /upstream-sync (retaining granular sections enriched with deep paths + SQLite compactor). Merged all feature branches into sentinel-customization. Compiled self-contained Release win-x64 build and deployed 254 files to D:\Program\FluentCleaner. | Antigravity |
+| **2026-11-24** | Scope Expansion (§9–§11) & Multi-Branch Architecture | Added §9 (Settings Update Notification & Localization Fix on `feat/ui-enhancements`), §10 (Enterprise UI Overhaul & Colorful Iconography on `feat/fluent-enterprise-ui`), and §11 (Master Integration & Branch Sync on `sentinel-customization`). Total tasks updated to 42. Staged plan at `temp/upstream_sync_and_update_notification_plan.md`. | Antigravity |
+| **2026-11-24** | Modern Enterprise UI (§10), Settings Fix (§9) & 26.11.123 Deployment (§11) | Completed full Modern Enterprise UI overhaul matching FluentCleaner_Enterprise_UI_v2.png (36x36 rounded hero category cards, 28x28 rounded colored category pills, terminal live inspector, storage donut gauge). Restored missing neutral English update resources in Resources.resw and refined Settings InfoBar to Informational. Synchronized version to 26.11.123 across FluentCleaner.csproj, version.txt, and versions.json. Merged feat/ui-enhancements and feat/fluent-enterprise-ui into sentinel-customization. Compiled Release win-x64 build (256 files) and deployed to D:\Program\FluentCleaner. Verified process liveness (PID 26316) with 0 launch crashes. | Antigravity |
