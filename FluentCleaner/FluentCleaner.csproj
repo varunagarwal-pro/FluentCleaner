@@ -18,6 +18,7 @@
     <AssemblyVersion>26.11.108</AssemblyVersion>
     <FileVersion>26.11.108</FileVersion>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+    <DefaultLanguage>en-US</DefaultLanguage>
   </PropertyGroup>
 
   <ItemGroup>
@@ -78,4 +79,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
+
+  <!-- Ensure PRI resource binary is always deployed to publish output for unpackaged WinUI 3 -->
+  <Target Name="CopyPriToPublish" AfterTargets="Publish">
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pri" DestinationFolder="$(PublishDir)" Condition="Exists('$(TargetDir)$(TargetName).pri')" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pri" DestinationFiles="$(PublishDir)resources.pri" Condition="Exists('$(TargetDir)$(TargetName).pri')" />
+  </Target>
 </Project>
