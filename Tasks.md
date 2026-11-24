@@ -7,9 +7,9 @@
 
 > [!IMPORTANT]
 > **Implementation Scope & Governance Rules:**
-> - **Target Boundary:** `D:\Sentinel-Labs\FluentCleaner\` is the strict workspace boundary. All code, configs, and plugins belong strictly within this folder.
-> - **Staging & Temp Directory:** `D:\Sentinel-Labs\FluentCleaner\temp` is the ONLY directory permitted for orchestration scripts, diagnostic test harnesses, and staging plans (`temp/<task_name>_plan.md`).
-> - **Tooling Hierarchy:** Reusable fleet utilities reside in `D:\Sentinel-Labs\tools\`. FluentCleaner project tools reside in `FluentCleaner\tools\`.
+> - **Target Boundary:** `D:\SentinelLabs\FluentCleaner\` is the strict workspace boundary. All code, configs, and plugins belong strictly within this folder.
+> - **Staging & Temp Directory:** `D:\SentinelLabs\FluentCleaner\temp` is the ONLY directory permitted for orchestration scripts, diagnostic test harnesses, and staging plans (`temp/<task_name>_plan.md`).
+> - **Tooling Hierarchy:** Reusable fleet utilities reside in `D:\SentinelLabs\tools\`. FluentCleaner project tools reside in `FluentCleaner\tools\`.
 > - **64-Bit & Asynchronous Standard:** All code and builds MUST target strictly 64-bit architectures (`win-x64`/`win-arm64`). Heavy disk I/O, SQLite operations, and regex matching MUST execute off the UI thread via `Task.Run` or background worker pools.
 > - **Core Safety Invariants:** Zero telemetry, no spyware, no scareware alerts, no fake registry cleaners, and strictly non-destructive defaults for developer history/auto-memory.
 > - **Approved Task Lock (Rule 12):** Once approved, task lines are LOCKED. No agent may silently alter, merge, delete, or descope any approved task. Only status updates (`⬜` ➔ `✅`), factual notes (`📝`), and dated change logs are permitted without explicit written user approval.
