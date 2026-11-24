@@ -18,6 +18,8 @@ public partial class CleanerCategoryViewModel : ObservableObject
     public string MacroGroup { get; }
     public string AccentColorHex { get; }
     public string IconBackgroundHex { get; }
+    public string? AppIconSource { get; }
+    public bool HasAppIcon => !string.IsNullOrEmpty(AppIconSource);
     public ObservableCollection<CleanerEntryViewModel> Entries { get; } = new();
 
     [ObservableProperty] public partial bool   IsExpanded { get; set; } = false;
@@ -162,9 +164,11 @@ public partial class CleanerCategoryViewModel : ObservableObject
     public CleanerCategoryViewModel(
         string name,
         string macroGroup = "Apps",
-        string iconGlyph = "",
+        string iconGlyph = "\uE71D",
         string accentColorHex = "#8B5CF6",
         string iconBackgroundHex = "#1F8B5CF6",
+        string? appIconSource = null,
+        bool hasAppIcon = false,
         Action<CleanerCategoryViewModel, bool>? onBulkSelect = null)
     {
         Name              = name;
@@ -172,6 +176,7 @@ public partial class CleanerCategoryViewModel : ObservableObject
         IconGlyph         = iconGlyph;
         AccentColorHex    = accentColorHex;
         IconBackgroundHex = iconBackgroundHex;
+        AppIconSource     = appIconSource;
         _onBulkSelect     = onBulkSelect;
     }
 }
