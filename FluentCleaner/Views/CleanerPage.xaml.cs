@@ -33,7 +33,12 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
 
         Loaded += async (_, _) =>
         {
-            UpdateDonutChart();
+            if (Application.Current is App app && app.MainWindow is { } mainWin)
+            {
+                mainWin.Activated -= MainWindow_Activated;
+                mainWin.Activated += MainWindow_Activated;
+            }
+
             if (_loaded) return;
             _loaded = true;
 
@@ -53,6 +58,18 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
                 DispatcherQueue.TryEnqueue(UpdateDonutChart);
             }
         };
+
+        Unloaded += (_, _) =>
+        {
+            if (Application.Current is App app && app.MainWindow is { } mainWin)
+                mainWin.Activated -= MainWindow_Activated;
+        };
+    }
+
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState != WindowActivationState.Deactivated && _loaded && !ViewModel.IsBusy)
+            _ = ViewModel.RefreshRunningProcessesAsync();
     }
 
     private void UpdateDonutChart()
