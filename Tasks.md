@@ -217,7 +217,8 @@
 
 #### Branch: `custom` & `main` (Pure `upstream-mirror + branches`)
 - ✅ **13.5** — **Add TDD Tests on `custom`, Rebuild Pure `main`, Publish, Deploy & Push All Branches:** Add TDD unit tests for `ScanProgressEstimator` (and Locksmith/CleaningService seams) on `custom`, reset `main` to `upstream-mirror` and merge all branches cleanly (zero direct feature commits on `main` or `upstream-mirror`), verify `dotnet test` + `dotnet publish -c Release -r win-x64 --self-contained true -p:Platform=x64` via `evidence_gate.py`, deploy to `D:\Program\FluentCleaner`, and push all branches to `origin`.
-  > 📝 Tests: `ev-20261127T215725Z-28cc` (exit=0) | Publish: `ev-20261127T215725Z-834f` (exit=0) | Deployed: `D:\Program\FluentCleaner` (`robocopy` exit=1).
+  > 📝 Tests (8/8): `ev-20261127T215725Z-28cc` (exit=0) | Publish: `ev-20261127T215725Z-834f` (exit=0) | Deployed: `D:\Program\FluentCleaner` (`robocopy` exit=1).
+  > 📝 TDD ScanProgressEstimator (10/10): `ev-20261127T221644Z-fe37` (exit=0) | Full suite (18/18): `ev-20261127T221740Z-32ae` (exit=0) | Re-publish: `ev-20261127T221753Z-12f7` (exit=0) | Re-deployed: 5 files updated, 94.82 MB. Commit on `custom`: `5767c75`. Merged `custom → main`: `b21b045`.
 
 ---
 
