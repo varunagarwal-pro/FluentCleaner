@@ -8,6 +8,7 @@ namespace FluentCleaner.Views;
 public sealed partial class FileLocksmithDialog : ContentDialog
 {
     private List<LockedFileItem> _remaining;
+    private List<LockingProcessGroup> _processGroups = new();
     private bool _isBusy;
     private CancellationTokenSource? _scanCts;
 
@@ -75,8 +76,9 @@ public sealed partial class FileLocksmithDialog : ContentDialog
             });
 
             var (processes, _)            = await FileLocksmithService.FindLockingProcessesAsync(_remaining, progress, token);
-            ProcessList.ItemsSource       = processes;
-            EmptyProcessesText.Visibility = processes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            _processGroups                = processes;
+            ProcessList.ItemsSource       = _processGroups;
+            EmptyProcessesText.Visibility = _processGroups.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateSummaryText();
         }
         finally
@@ -131,16 +133,49 @@ public sealed partial class FileLocksmithDialog : ContentDialog
                     ? $"Deleted {deleted:N0} files and reclaimed {ScanResult.FormatBytes(freed)}."
                     : "Files remained locked after closing. Try running as administrator or schedule delete on reboot.");
 
-            await RefreshLocksAsync();
+            var deletedPaths = await Task.Run(() => snapshot
+                .Where(item => !File.Exists(item.FilePath))
+                .Select(item => item.FilePath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+            if (deletedPaths.Count > 0)
+            {
+                PrunePathsInMemory(deletedPaths);
+            }
+            else
+            {
+                UpdateSummaryText();
+            }
         }
         catch (Exception ex)
         {
             ShowActionInfo(InfoBarSeverity.Error, "Unlock Failed", ex.Message);
+        }
+        finally
+        {
             SetBusy(false);
         }
     }
 
-    private async void ExcludeLockedFile_Click(object sender, RoutedEventArgs e)
+    private void PrunePathsInMemory(HashSet<string> pathsToRemove)
+    {
+        _remaining.RemoveAll(r => pathsToRemove.Contains(r.FilePath));
+        foreach (var pg in _processGroups)
+            pg.Files.RemoveAll(f => pathsToRemove.Contains(f.FilePath));
+        _processGroups.RemoveAll(pg => pg.Files.Count == 0);
+
+        ProcessList.ItemsSource       = null;
+        ProcessList.ItemsSource       = _processGroups;
+        EmptyProcessesText.Visibility = _remaining.Count > 0 && _processGroups.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        UpdateSummaryText();
+
+        if (_remaining.Count == 0)
+            ShowActionInfo(InfoBarSeverity.Success, "All Locked Files Cleared", "Every previously locked file has been removed or excluded.");
+    }
+
+    private void ExcludeLockedFile_Click(object sender, RoutedEventArgs e)
     {
         if (_isBusy || sender is not Button { Tag: LockedFileItem item }) return;
 
@@ -159,9 +194,8 @@ public sealed partial class FileLocksmithDialog : ContentDialog
                 settings.Save();
             }
 
-            _remaining.RemoveAll(r => string.Equals(r.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
             ShowActionInfo(InfoBarSeverity.Informational, "Excluded File", $"Added {file} to Global Exclusions.");
-            await RefreshLocksAsync();
+            PrunePathsInMemory(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { item.FilePath });
         }
         catch (Exception ex)
         {
