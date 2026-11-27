@@ -29,17 +29,8 @@ public partial class CleanerPageViewModel : ObservableObject
     private CancellationTokenSource? _searchDebounceCts;
 
     // --- Observable state ---------------------------------------------------
-    [ObservableProperty] public partial ObservableCollection<CleanerCategoryViewModel> Categories { get; set; } = [];    // left panel: category tree
-    [ObservableProperty] public partial ObservableCollection<ScanResultLine>           ResultLines { get; set; } = [];    // right panel: per-app results after Analyze
-    [ObservableProperty] public partial ObservableCollection<DetailLine>               DetailLines { get; set; } = [];    // right panel: file/registry paths when a result row is open
-    [ObservableProperty] public partial ScanResultLine?                                SelectedResultLine { get; set; }   // which result row is currently open in detail view
-    [ObservableProperty] public partial string  SearchText { get; set; } = "";                                            // search box
-    [ObservableProperty] public partial string  StatusText { get; set; } = ResourceService.Get("St_Loading");                     // run header above the results
-    [ObservableProperty] public partial string  TotalSize     { get; set; } = "";                                        // sum of all scan results
-    [ObservableProperty] public partial int     CatalogueCount { get; set; }                                             // entries in the databases, before the installed check
-    [ObservableProperty] public partial double  ScanProgress  { get; set; }                                               // 0–100; drives the real progress bar
-    [ObservableProperty] public partial bool    IsBusy        { get; set; }                                               // locked while a scan or clean is running
-    [ObservableProperty] public partial bool    OfferElevation { get; set; }                                              // last clean skipped files and we're not admin: header offers a restart
+    [ObservableProperty] public partial int     CatalogueCount { get; set; }
+    [ObservableProperty] public partial bool    OfferElevation { get; set; }
 
     private static readonly bool IsElevated =
         new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
