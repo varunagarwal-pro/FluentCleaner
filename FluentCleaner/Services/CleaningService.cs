@@ -1,6 +1,7 @@
 ﻿using FluentCleaner.Models;
 using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
+using System.Collections.Concurrent;
 using System.IO.Enumeration;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -13,6 +14,9 @@ namespace FluentCleaner.Services;
    Clean   ; takes the completed ScanResult and does the actual deleting. */
 public class CleaningService
 {
+    private static int MaxConcurrency => Math.Clamp(Environment.ProcessorCount, 4, 16);
+    private static readonly ConcurrentDictionary<string, object> DbLocks = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly PathExpander _expander = new();
 
     // --- Public api --------------------------------------------------
@@ -50,41 +54,95 @@ public class CleaningService
         // (Firefox Caches alone is ~8600 files)
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var fileKey in entry.FileKeys)
+        if (entry.FileKeys.Count > 1)
         {
-            try
-            {
-                foreach (var file in FindFiles(fileKey, fileExclusions, entryProgress, token))
+            var candidates = new ConcurrentBag<(string File, long Size)>();
+            var lockedCandidates = new ConcurrentBag<(string File, long Size)>();
+            Parallel.ForEach(
+                entry.FileKeys,
+                new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrency, CancellationToken = token },
+                fileKey =>
                 {
-                    if (!seen.Add(file)) continue;
-
-                    // Probe deletability; track hard-locked files separately so File Locksmith can surface them.
-                    var size = TryGetDeletableSize(file);
-
-                    if (size < 0 && entry.IsCompactionOnly && File.Exists(file))
+                    try
                     {
-                        try { size = new FileInfo(file).Length; }
-                        catch { size = -1; }
-                    }
-                    if (size < 0)
-                    {
-                        if (File.Exists(file))
+                        foreach (var file in FindFiles(fileKey, fileExclusions, entryProgress, token))
                         {
-                            long lockedSize = 0;
-                            try { lockedSize = new FileInfo(file).Length; } catch { }
-                            result.LockedFiles.Add((file, lockedSize));
-                            result.LockedBytes += lockedSize;
+                            var size = TryGetDeletableSize(file);
+                            if (size < 0 && entry.IsCompactionOnly && File.Exists(file))
+                            {
+                                try { size = new FileInfo(file).Length; }
+                                catch { size = -1; }
+                            }
+                            if (size < 0)
+                            {
+                                if (File.Exists(file))
+                                {
+                                    long lockedSize = 0;
+                                    try { lockedSize = new FileInfo(file).Length; } catch { }
+                                    lockedCandidates.Add((file, lockedSize));
+                                }
+                                continue;
+                            }
+                            candidates.Add((file, size));
                         }
-                        continue;
                     }
+                    catch (OperationCanceledException) { throw; }
+                    catch { }
+                });
 
-                    result.FilesToDelete.Add(file);
-                    result.FileSizes[file] = size;
-                    result.TotalBytes += size;
-                }
+            var seenLocked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (file, lockedSize) in lockedCandidates)
+            {
+                if (!seenLocked.Add(file)) continue;
+                result.LockedFiles.Add((file, lockedSize));
+                result.LockedBytes += lockedSize;
             }
-            catch (OperationCanceledException) { throw; }  //cancel must reach the caller, not get swallowed
-            catch { }
+
+            foreach (var (file, size) in candidates)
+            {
+                if (!seen.Add(file)) continue;
+                result.FilesToDelete.Add(file);
+                result.FileSizes[file] = size;
+                result.TotalBytes += size;
+            }
+        }
+        else
+        {
+            foreach (var fileKey in entry.FileKeys)
+            {
+                try
+                {
+                    foreach (var file in FindFiles(fileKey, fileExclusions, entryProgress, token))
+                    {
+                        if (!seen.Add(file)) continue;
+
+                        // Probe deletability; track hard-locked files separately so File Locksmith can surface them.
+                        var size = TryGetDeletableSize(file);
+                        if (size < 0 && entry.IsCompactionOnly && File.Exists(file))
+                        {
+                            try { size = new FileInfo(file).Length; }
+                            catch { size = -1; }
+                        }
+                        if (size < 0)
+                        {
+                            if (File.Exists(file))
+                            {
+                                long lockedSize = 0;
+                                try { lockedSize = new FileInfo(file).Length; } catch { }
+                                result.LockedFiles.Add((file, lockedSize));
+                                result.LockedBytes += lockedSize;
+                            }
+                            continue;
+                        }
+
+                        result.FilesToDelete.Add(file);
+                        result.FileSizes[file] = size;
+                        result.TotalBytes += size;
+                    }
+                }
+                catch (OperationCanceledException) { throw; }  //cancel must reach the caller, not get swallowed
+                catch { }
+            }
         }
 
         foreach (var regKey in entry.RegKeys)
@@ -232,54 +290,61 @@ public class CleaningService
         bool shellRefreshNeeded = ShellNotification.ShouldNotify(result);
         bool entryRequestsTruncate = result.Entry.FileKeys.Any(fk => (fk.Flag & FileKeyFlag.Truncate) != 0);
         var registryExclusions = BuildRegistryExclusions(result.Entry);
+        var domainsToKeep = AppSettings.Instance.CookieDomainsToKeep;
 
-        foreach (var file in result.FilesToDelete)
+        void CleanSingleFile(string file)
         {
-            token.ThrowIfCancellationRequested(); //stop between files so we never delete half an entry
+            token.ThrowIfCancellationRequested();
             try
             {
                 if (result.Entry.IsCompactionOnly)
                 {
-                    var vacuum = WinSqlite.VacuumDatabase(file);
-                    if (vacuum.Success)
+                    var compactLock = DbLocks.GetOrAdd(file, _ => new object());
+                    lock (compactLock)
                     {
-                        count++;
-                        bytes += vacuum.ReclaimedBytes;
-                        progress?.Report($"Compacted {Path.GetFileName(file)}: Reclaimed {vacuum.ReclaimedBytes:N0} bytes");
+                        var vacuum = WinSqlite.VacuumDatabase(file);
+                        if (vacuum.Success)
+                        {
+                            Interlocked.Increment(ref count);
+                            Interlocked.Add(ref bytes, vacuum.ReclaimedBytes);
+                            progress?.Report($"Compacted {Path.GetFileName(file)}: Reclaimed {vacuum.ReclaimedBytes:N0} bytes");
+                        }
                     }
-                    continue;
+                    return;
                 }
 
                 // A keep-list replaces Winapp2's whole-file delete for known browser stores.
                 // CookieService owns the SQL work and blocks unsafe fallback deletion.
-                var cookieClean = CookieService.TryCleanProtectedStore(
-                    file, AppSettings.Instance.CookieDomainsToKeep);
-                if (cookieClean.Handled)
+                // Serialize SQLite access per database path so concurrent workers never collide.
+                var dbLock = DbLocks.GetOrAdd(file, _ => new object());
+                bool handledCookieStore;
+                lock (dbLock)
                 {
-                    if (cookieClean.Succeeded)
+                    var cookieClean = CookieService.TryCleanProtectedStore(file, domainsToKeep);
+                    handledCookieStore = cookieClean.Handled;
+                    if (handledCookieStore && cookieClean.Succeeded)
                     {
-                        count += cookieClean.CookiesRemoved;
-                        bytes += cookieClean.BytesFreed;
+                        Interlocked.Add(ref count, cookieClean.CookiesRemoved);
+                        Interlocked.Add(ref bytes, cookieClean.BytesFreed);
                         if (cookieClean.CookiesRemoved > 0)
                             progress?.Report(ResourceService.Fmt("Cleaning_CleanedCookies", cookieClean.CookiesRemoved, file));
                     }
-                    continue;
                 }
+
+                if (handledCookieStore)
+                    return;
 
                 var size = new FileInfo(file).Length;
 
                 // If entry explicitly requested TRUNCATE flag:
-                if (entryRequestsTruncate)
+                if (entryRequestsTruncate && TryTruncateFile(file))
                 {
-                    if (TryTruncateFile(file))
-                    {
-                        count++;
-                        bytes += size;
-                        progress?.Report(ResourceService.Fmt("Prog_Truncated", file));
-                        if (!shellRefreshNeeded && ShellNotification.IsShellCacheFile(file))
-                            shellRefreshNeeded = true;
-                        continue;
-                    }
+                    Interlocked.Increment(ref count);
+                    Interlocked.Add(ref bytes, size);
+                    progress?.Report(ResourceService.Fmt("Prog_Truncated", file));
+                    if (ShellNotification.IsShellCacheFile(file))
+                        shellRefreshNeeded = true;
+                    return;
                 }
 
                 try
@@ -287,10 +352,10 @@ public class CleaningService
                     // Strip ReadOnly/Hidden/System attributes first so File.Delete does not fail with UnauthorizedAccessException
                     FileLocksmithService.ClearRestrictiveAttributes(file);
                     File.Delete(file);
-                    count++;
-                    bytes += size;
+                    Interlocked.Increment(ref count);
+                    Interlocked.Add(ref bytes, size);
                     progress?.Report(ResourceService.Fmt("Prog_Deleted", file));
-                    if (!shellRefreshNeeded && ShellNotification.IsShellCacheFile(file))
+                    if (ShellNotification.IsShellCacheFile(file))
                         shellRefreshNeeded = true;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -298,16 +363,16 @@ public class CleaningService
                     // Fallback to in-place truncation on locked files (ReadWrite | Delete sharing)
                     if (TryTruncateFile(file))
                     {
-                        count++;
-                        bytes += size;
+                        Interlocked.Increment(ref count);
+                        Interlocked.Add(ref bytes, size);
                         progress?.Report(ResourceService.Fmt("Prog_Truncated", file));
-                        if (!shellRefreshNeeded && ShellNotification.IsShellCacheFile(file))
+                        if (ShellNotification.IsShellCacheFile(file))
                             shellRefreshNeeded = true;
                     }
                     else if (File.Exists(file))
                     {
-                        // Track genuinely locked/permission-denied files for PowerToys-style File Locksmith dialog
-                        lockedFiles.Add(new LockedFileItem(file, size, result.Entry.Name, ex.Message));
+                        lock (lockedFiles)
+                            lockedFiles.Add(new LockedFileItem(file, size, result.Entry.Name, ex.Message));
                     }
                 }
             }
@@ -317,9 +382,22 @@ public class CleaningService
                 {
                     long sz = 0;
                     try { sz = new FileInfo(file).Length; } catch { }
-                    lockedFiles.Add(new LockedFileItem(file, sz, result.Entry.Name, ex.Message));
+                    lock (lockedFiles)
+                        lockedFiles.Add(new LockedFileItem(file, sz, result.Entry.Name, ex.Message));
                 }
             }
+        }
+
+        if (result.FilesToDelete.Count > 1)
+        {
+            Parallel.ForEach(
+                result.FilesToDelete,
+                new ParallelOptions { MaxDegreeOfParallelism = MaxConcurrency, CancellationToken = token },
+                CleanSingleFile);
+        }
+        else if (result.FilesToDelete.Count == 1)
+        {
+            CleanSingleFile(result.FilesToDelete[0]);
         }
 
         foreach (var regItem in result.RegistryToDelete)
@@ -597,7 +675,7 @@ public class CleaningService
        shouldn't be able to touch them. Add a line to protect more. */
     private static readonly string[] ProtectedSegments =
     {
-        // browser extension databases (1Password, Bitwarden, uBlock filter listsâ€¦);
+        // browser extension databases (1Password, Bitwarden, uBlock filter lists…);
         // normal site storage ("https_...") stays cleanable, only "chrome-extension_" is off-limits
         @"\IndexedDB\chrome-extension_",
     };
@@ -655,7 +733,7 @@ public class CleaningService
        this is purely a string-prefix transform. */
     private sealed class PrefixedProgress(string prefix, IProgress<string> inner) : IProgress<string>
     {
-        public void Report(string path) => inner.Report($"{prefix}  â€º  {path}");
+        public void Report(string path) => inner.Report($"{prefix}  \u203A  {path}");
     }
 
     // --- P/Invoke -------------------------------------------------

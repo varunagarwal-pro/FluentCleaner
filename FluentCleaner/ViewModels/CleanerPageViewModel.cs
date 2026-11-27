@@ -541,18 +541,17 @@ public partial class CleanerPageViewModel : ObservableObject
         {
             long totalBytes = 0; int totalFiles = 0; int totalReg = 0; int done = 0;
             int total = selected.Count;
-            var progress = new Progress<string>(msg => StatusText = msg);
+            var progress = new ThrottledProgress(new Progress<string>(msg => StatusText = msg));
 
-            foreach (var entry in selected)
+            await AnalyzeEntriesParallelAsync(selected, progress, keepDetailSelection: false, cts.Token, result =>
             {
-                var result = await AnalyzeEntryInternalAsync(entry, progress, keepDetailSelection: false, cts.Token);
                 totalBytes += result.TotalBytes;
                 totalFiles += result.FilesToDelete.Count;
                 totalReg   += result.RegistryToDelete.Count;
                 TotalBytesScanned = totalBytes;
                 TotalSize         = ScanResult.FormatBytes(totalBytes);
                 ScanProgress      = ++done * 100.0 / total;
-            }
+            });
             SortResultLinesBySize(descending: true);
             RefreshAllCategoryAndMacroStats();
             SyncScanTimeLockedFiles();
@@ -838,13 +837,12 @@ public partial class CleanerPageViewModel : ObservableObject
         {
             var selected = categoryVm.Entries.Where(e => e.IsSelected).ToList();
             int done = 0, total = selected.Count;
-            var progress = new Progress<string>(msg => StatusText = msg);
+            var progress = new ThrottledProgress(new Progress<string>(msg => StatusText = msg));
 
-            foreach (var entryVm in selected)
+            await AnalyzeEntriesParallelAsync(selected.Select(e => e.Entry).ToList(), progress, keepDetailSelection: false, cts.Token, _ =>
             {
-                await AnalyzeEntryInternalAsync(entryVm.Entry, progress, keepDetailSelection: false, cts.Token);
                 ScanProgress = total > 0 ? ++done * 100.0 / total : 100;
-            }
+            });
 
             SortResultLinesBySize(descending: true);
             UpdateTotalsFromLastScan();
@@ -875,8 +873,9 @@ public partial class CleanerPageViewModel : ObservableObject
         var progress       = new Progress<string>(msg => StatusText = msg);
 
         var selected = categoryVm.Entries.Where(e => e.IsSelected).ToList();
-        foreach (var vm in selected.Where(vm => !_lastScan.Any(r => r.Entry == vm.Entry)))
-            await AnalyzeEntryInternalAsync(vm.Entry, progress, keepDetailSelection: false);
+        var missing  = selected.Where(vm => !_lastScan.Any(r => r.Entry == vm.Entry)).Select(vm => vm.Entry).ToList();
+        if (missing.Count > 0)
+            await AnalyzeEntriesParallelAsync(missing, new ThrottledProgress(progress), keepDetailSelection: false, CancellationToken.None);
 
         LastLockedFiles.Clear();
         HasLockedFiles = false;
@@ -1241,11 +1240,51 @@ public partial class CleanerPageViewModel : ObservableObject
         }
     }
 
+    private static int MaxScanConcurrency => Math.Clamp(Environment.ProcessorCount, 4, 16);
+
+    private async Task AnalyzeEntriesParallelAsync(
+        IReadOnlyList<CleanerEntry> entries,
+        IProgress<string> progress,
+        bool keepDetailSelection,
+        CancellationToken token,
+        Action<ScanResult>? onEntryCompleted = null)
+    {
+        if (entries.Count == 0) return;
+
+        using var throttle = new SemaphoreSlim(MaxScanConcurrency);
+        var tasks = entries.Select(async entry =>
+        {
+            await throttle.WaitAsync(token);
+            ScanResult result;
+            try
+            {
+                result = await _cleaner.AnalyzeAsync(entry, progress, token);
+            }
+            finally
+            {
+                throttle.Release();
+            }
+
+            CommitScanResult(entry, result, keepDetailSelection);
+            onEntryCompleted?.Invoke(result);
+        });
+
+        await Task.WhenAll(tasks);
+    }
+
+    // Central scan method; called by single-entry, category, and full analyze flows.
+    // keepDetailSelection: if true, opens the detail view for this entry after scanning.
     private async Task<ScanResult> AnalyzeEntryInternalAsync(CleanerEntry entry, IProgress<string> progress, bool keepDetailSelection, CancellationToken token = default)
     {
-        RemoveScanResult(entry);
-
         var result = await _cleaner.AnalyzeAsync(entry, progress, token);
+        CommitScanResult(entry, result, keepDetailSelection);
+        return result;
+    }
+
+    private void CommitScanResult(CleanerEntry entry, ScanResult result, bool keepDetailSelection)
+    {
+        RemoveScanResult(entry);        // Re-analyzing an entry should replace the old result, not stack duplicates forever
+
         _lastScan.Add(result);
         UpdateEntrySize(entry, result.TotalBytes, result.FormattedSize);
 
@@ -1273,8 +1312,6 @@ public partial class CleanerPageViewModel : ObservableObject
 
         if (keepDetailSelection && line is not null)
             SelectedResultLine = line;
-
-        return result;
     }
 
     private async Task<ScanResult> EnsureEntryScanAsync(CleanerEntryViewModel entryVm, IProgress<string> progress)
@@ -1321,20 +1358,51 @@ public partial class CleanerPageViewModel : ObservableObject
 
     private async Task<(int count, long bytes)> CleanResultsAsync(List<ScanResult> results, IProgress<string> progress, CancellationToken token = default)
     {
+        if (results.Count == 0) return (0, 0);
+
         int  count = 0;
         long bytes = 0;
         int  done  = 0;
         int  total = results.Count;
-        foreach (var result in results)
+        var  throttled = new ThrottledProgress(progress);
+
+        using var throttle = new SemaphoreSlim(MaxScanConcurrency);
+        var tasks = results.Select(async result =>
         {
-            var (c, b) = await _cleaner.CleanAsync(result, progress, token);
-            count += c;
-            bytes += b;
+            await throttle.WaitAsync(token);
+            (int c, long b) outcome;
+            try
+            {
+                outcome = await _cleaner.CleanAsync(result, throttled, token);
+            }
+            finally
+            {
+                throttle.Release();
+            }
+
+            count += outcome.c;
+            bytes += outcome.b;
             ScanProgress = total > 0 ? ++done * 100.0 / total : 100;
             RemoveScanResult(result);
             UpdateEntrySize(result.Entry, 0, "");
-        }
+        });
+
+        await Task.WhenAll(tasks);
         return (count, bytes);
+    }
+
+    private sealed class ThrottledProgress(IProgress<string> inner, int intervalMs = 50) : IProgress<string>
+    {
+        private long _lastReportTick;
+
+        public void Report(string value)
+        {
+            long now = Environment.TickCount64;
+            long prev = Volatile.Read(ref _lastReportTick);
+            if (now - prev < intervalMs) return;
+            if (Interlocked.CompareExchange(ref _lastReportTick, now, prev) == prev)
+                inner.Report(value);
+        }
     }
 
     private void RemoveScanResult(CleanerEntry entry)
