@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -58,31 +59,74 @@ public static class FileLocksmithService
 
     /// <summary>
     /// Identifies all processes currently holding locks on the supplied file paths using Windows Restart Manager.
-    /// Uses recursive binary splitting on multi-process batches for 100% accurate per-process file attribution.
+    /// Groups by directory and executes Restart Manager batches in parallel for high throughput.
     /// </summary>
     public static Task<(List<LockingProcessGroup> Processes, List<LockedFileItem> UnattributedFiles)> FindLockingProcessesAsync(
         IReadOnlyList<LockedFileItem> lockedFiles,
         CancellationToken token = default)
-        => Task.Run(() => FindLockingProcessesInternal(lockedFiles, token), token);
+        => FindLockingProcessesAsync(lockedFiles, progress: null, token);
+
+    public static Task<(List<LockingProcessGroup> Processes, List<LockedFileItem> UnattributedFiles)> FindLockingProcessesAsync(
+        IReadOnlyList<LockedFileItem> lockedFiles,
+        IProgress<(int ProcessedFiles, int TotalFiles)>? progress,
+        CancellationToken token = default)
+        => Task.Run(() => FindLockingProcessesInternal(lockedFiles, progress, token), token);
 
     private static (List<LockingProcessGroup> Processes, List<LockedFileItem> UnattributedFiles) FindLockingProcessesInternal(
         IReadOnlyList<LockedFileItem> lockedFiles,
+        IProgress<(int ProcessedFiles, int TotalFiles)>? progress,
         CancellationToken token)
     {
-        var byPid = new Dictionary<int, (string ProcName, string DisplayName, bool IsProtected, List<LockedFileItem> Files)>();
-        var unattributed = new List<LockedFileItem>();
+        var byPid = new ConcurrentDictionary<int, (string ProcName, string DisplayName, bool IsProtected, ConcurrentBag<LockedFileItem> Files)>();
+        var unattributed = new ConcurrentBag<LockedFileItem>();
+        var pidNameCache = new ConcurrentDictionary<int, string>();
+
         var deduped = lockedFiles
+            .AsParallel()
+            .WithCancellation(token)
             .Where(f => !string.IsNullOrWhiteSpace(f.FilePath) && File.Exists(f.FilePath))
             .DistinctBy(f => f.FilePath, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        const int batchSize = 64;
-        for (int i = 0; i < deduped.Count; i += batchSize)
+        int total = deduped.Count;
+        if (total == 0)
         {
-            token.ThrowIfCancellationRequested();
-            var batch = deduped.Skip(i).Take(batchSize).ToList();
-            AttributeBatchRecursive(batch, byPid, unattributed, token);
+            progress?.Report((0, 0));
+            return (new List<LockingProcessGroup>(), new List<LockedFileItem>());
         }
+
+        // Group by parent directory first: files in the same folder are usually held by the same process,
+        // avoiding O(N log N) Restart Manager binary splits.
+        const int batchSize = 128;
+        var batches = new List<List<LockedFileItem>>();
+        foreach (var dirGroup in deduped.GroupBy(f => Path.GetDirectoryName(f.FilePath) ?? "", StringComparer.OrdinalIgnoreCase))
+        {
+            var list = dirGroup.ToList();
+            for (int i = 0; i < list.Count; i += batchSize)
+                batches.Add(list.GetRange(i, Math.Min(batchSize, list.Count - i)));
+        }
+
+        int processed = 0;
+        long lastReportTick = 0;
+
+        void ReportLeaf(int count)
+        {
+            int done = Interlocked.Add(ref processed, count);
+            if (progress is null) return;
+            long now = Environment.TickCount64;
+            long prev = Interlocked.Read(ref lastReportTick);
+            if (done >= total || (now - prev >= 80 && Interlocked.CompareExchange(ref lastReportTick, now, prev) == prev))
+                progress.Report((Math.Min(done, total), total));
+        }
+
+        // Cap at 8 concurrent Restart Manager sessions (Windows limit is 64 per user session).
+        int rmParallelism = Math.Clamp(Environment.ProcessorCount, 4, 8);
+        Parallel.ForEach(
+            batches,
+            new ParallelOptions { MaxDegreeOfParallelism = rmParallelism, CancellationToken = token },
+            batch => AttributeBatchRecursive(batch, byPid, unattributed, pidNameCache, ReportLeaf, token));
+
+        progress?.Report((total, total));
 
         var groups = byPid
             .Select(kvp => new LockingProcessGroup(
@@ -97,22 +141,26 @@ public static class FileLocksmithService
             .ThenByDescending(g => g.TotalBytes)
             .ToList();
 
-        return (groups, unattributed);
+        return (groups, unattributed.ToList());
     }
 
     private static void AttributeBatchRecursive(
         List<LockedFileItem> batch,
-        Dictionary<int, (string ProcName, string DisplayName, bool IsProtected, List<LockedFileItem> Files)> byPid,
-        List<LockedFileItem> unattributed,
+        ConcurrentDictionary<int, (string ProcName, string DisplayName, bool IsProtected, ConcurrentBag<LockedFileItem> Files)> byPid,
+        ConcurrentBag<LockedFileItem> unattributed,
+        ConcurrentDictionary<int, string> pidNameCache,
+        Action<int> reportLeaf,
         CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         if (batch.Count == 0) return;
 
-        var pids = QueryRestartManagerBatch(batch.Select(b => b.FilePath).ToArray());
+        var pids = QueryRestartManagerBatch(batch.Select(b => b.FilePath).ToArray(), pidNameCache);
         if (pids.Count == 0)
         {
-            unattributed.AddRange(batch);
+            foreach (var item in batch)
+                unattributed.Add(item);
+            reportLeaf(batch.Count);
             return;
         }
 
@@ -122,31 +170,31 @@ public static class FileLocksmithService
             foreach (var item in batch)
                 foreach (var p in pids)
                     AddLockedItem(byPid, p.Pid, p.ProcName, p.DisplayName, item);
+            reportLeaf(batch.Count);
             return;
         }
 
         // Multiple processes in this batch -> binary-split so per-process counts/MB stay 100% accurate
         int mid = batch.Count / 2;
-        AttributeBatchRecursive(batch.GetRange(0, mid), byPid, unattributed, token);
-        AttributeBatchRecursive(batch.GetRange(mid, batch.Count - mid), byPid, unattributed, token);
+        AttributeBatchRecursive(batch.GetRange(0, mid), byPid, unattributed, pidNameCache, reportLeaf, token);
+        AttributeBatchRecursive(batch.GetRange(mid, batch.Count - mid), byPid, unattributed, pidNameCache, reportLeaf, token);
     }
 
     private static void AddLockedItem(
-        Dictionary<int, (string ProcName, string DisplayName, bool IsProtected, List<LockedFileItem> Files)> map,
+        ConcurrentDictionary<int, (string ProcName, string DisplayName, bool IsProtected, ConcurrentBag<LockedFileItem> Files)> map,
         int pid,
         string procName,
         string displayName,
         LockedFileItem item)
     {
-        if (!map.TryGetValue(pid, out var entry))
+        var entry = map.GetOrAdd(pid, id =>
         {
             // Protect critical Windows OS processes AND FluentCleaner itself (self-termination guard)
-            bool isProtected = pid <= 4
-                            || pid == Environment.ProcessId
+            bool isProtected = id <= 4
+                            || id == Environment.ProcessId
                             || ProtectedSystemProcesses.Contains(procName);
-            entry = (procName, string.IsNullOrWhiteSpace(displayName) ? procName : displayName, isProtected, new List<LockedFileItem>());
-            map[pid] = entry;
-        }
+            return (procName, string.IsNullOrWhiteSpace(displayName) ? procName : displayName, isProtected, new ConcurrentBag<LockedFileItem>());
+        });
         entry.Files.Add(item);
     }
 
@@ -348,7 +396,9 @@ public static class FileLocksmithService
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool MoveFileExW(string lpExistingFileName, string? lpNewFileName, uint dwFlags);
 
-    private static List<(int Pid, string ProcName, string DisplayName)> QueryRestartManagerBatch(string[] filePaths)
+    private static List<(int Pid, string ProcName, string DisplayName)> QueryRestartManagerBatch(
+        string[] filePaths,
+        ConcurrentDictionary<int, string> pidNameCache)
     {
         var results = new List<(int Pid, string ProcName, string DisplayName)>();
         if (filePaths.Length == 0) return results;
@@ -383,15 +433,19 @@ public static class FileLocksmithService
                         string procName = infos[i].strServiceShortName;
                         if (string.IsNullOrWhiteSpace(procName))
                         {
-                            try
+                            string fallbackName = infos[i].strAppName;
+                            procName = pidNameCache.GetOrAdd(pid, id =>
                             {
-                                using var p = Process.GetProcessById(pid);
-                                procName = p.ProcessName;
-                            }
-                            catch
-                            {
-                                procName = infos[i].strAppName;
-                            }
+                                try
+                                {
+                                    using var p = Process.GetProcessById(id);
+                                    return p.ProcessName;
+                                }
+                                catch
+                                {
+                                    return fallbackName;
+                                }
+                            });
                         }
 
                         var display = string.IsNullOrWhiteSpace(infos[i].strAppName) ? procName : infos[i].strAppName;

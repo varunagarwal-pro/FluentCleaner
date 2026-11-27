@@ -9,6 +9,7 @@ public sealed partial class FileLocksmithDialog : ContentDialog
 {
     private List<LockedFileItem> _remaining;
     private bool _isBusy;
+    private CancellationTokenSource? _scanCts;
 
     public int  AdditionalRemovedCount { get; private set; }
     public long AdditionalFreedBytes   { get; private set; }
@@ -21,7 +22,15 @@ public sealed partial class FileLocksmithDialog : ContentDialog
         Loaded += async (_, _) =>
         {
             try { await RefreshLocksAsync(); }
+            catch (OperationCanceledException) { }
             catch (Exception ex) { ShowActionInfo(InfoBarSeverity.Error, "Lock Analysis Error", ex.Message); }
+        };
+        Closing  += (_, _) => _scanCts?.Cancel();
+        Unloaded += (_, _) =>
+        {
+            _scanCts?.Cancel();
+            _scanCts?.Dispose();
+            _scanCts = null;
         };
     }
 
@@ -36,10 +45,15 @@ public sealed partial class FileLocksmithDialog : ContentDialog
 
     private async Task RefreshLocksAsync()
     {
+        _scanCts?.Cancel();
+        _scanCts?.Dispose();
+        _scanCts = new CancellationTokenSource();
+        var token = _scanCts.Token;
+
         SetBusy(true);
         try
         {
-            _remaining = _remaining.Where(f => File.Exists(f.FilePath)).ToList();
+            _remaining = await Task.Run(() => _remaining.AsParallel().Where(f => File.Exists(f.FilePath)).ToList(), token);
             UpdateSummaryText();
 
             if (_remaining.Count == 0)
@@ -50,9 +64,20 @@ public sealed partial class FileLocksmithDialog : ContentDialog
                 return;
             }
 
-            var (processes, _)            = await FileLocksmithService.FindLockingProcessesAsync(_remaining);
+            LoadingBar.IsIndeterminate = false;
+            LoadingBar.Value           = 0;
+            var progress = new Progress<(int Processed, int Total)>(p =>
+            {
+                if (p.Total <= 0) return;
+                double pct = p.Processed * 100.0 / p.Total;
+                LoadingBar.Value       = pct;
+                DialogSummaryText.Text = $"Analyzing locks: {p.Processed:N0} / {p.Total:N0} files ({(int)pct}%)…";
+            });
+
+            var (processes, _)            = await FileLocksmithService.FindLockingProcessesAsync(_remaining, progress, token);
             ProcessList.ItemsSource       = processes;
             EmptyProcessesText.Visibility = processes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            UpdateSummaryText();
         }
         finally
         {
@@ -80,16 +105,20 @@ public sealed partial class FileLocksmithDialog : ContentDialog
             int deleted = 0;
             long freed  = 0;
             var snapshot = group.Files.ToList();
+            LoadingBar.IsIndeterminate = true;
             await Task.Run(() =>
             {
-                foreach (var item in snapshot)
-                {
-                    if (FileLocksmithService.TryForceDeleteOrTruncate(item.FilePath, out long b))
+                Parallel.ForEach(
+                    snapshot,
+                    new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 16) },
+                    item =>
                     {
-                        deleted++;
-                        freed += b;
-                    }
-                }
+                        if (FileLocksmithService.TryForceDeleteOrTruncate(item.FilePath, out long b))
+                        {
+                            Interlocked.Increment(ref deleted);
+                            Interlocked.Add(ref freed, b);
+                        }
+                    });
             });
 
             AdditionalRemovedCount += deleted;
@@ -151,17 +180,21 @@ public sealed partial class FileLocksmithDialog : ContentDialog
             int deleted  = 0;
             long freed   = 0;
             var snapshot = _remaining.ToList();
+            LoadingBar.IsIndeterminate = true;
 
             await Task.Run(() =>
             {
-                foreach (var item in snapshot)
-                {
-                    if (FileLocksmithService.TryForceDeleteOrTruncate(item.FilePath, out long b))
+                Parallel.ForEach(
+                    snapshot,
+                    new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 16) },
+                    item =>
                     {
-                        deleted++;
-                        freed += b;
-                    }
-                }
+                        if (FileLocksmithService.TryForceDeleteOrTruncate(item.FilePath, out long b))
+                        {
+                            Interlocked.Increment(ref deleted);
+                            Interlocked.Add(ref freed, b);
+                        }
+                    });
             });
 
             AdditionalRemovedCount += deleted;
