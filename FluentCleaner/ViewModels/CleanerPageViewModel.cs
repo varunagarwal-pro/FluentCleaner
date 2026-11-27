@@ -68,6 +68,9 @@ public partial class CleanerPageViewModel : ObservableObject
     [ObservableProperty] public partial string          BannerMessage     { get; set; } = "";
     [ObservableProperty] public partial bool            CanUndoExclusion  { get; set; }
     [ObservableProperty] public partial bool            CanOfferElevation { get; set; }
+    [ObservableProperty] public partial bool            HasLockedFiles    { get; set; }
+    [ObservableProperty] public partial string          UnlockFilesLabel  { get; set; } = "Unlock Locked Files";
+    public List<LockedFileItem> LastLockedFiles { get; } = [];
 
     public string ProgressLabel => $"{ScanProgress:0}%";
 
@@ -221,6 +224,37 @@ public partial class CleanerPageViewModel : ObservableObject
         BannerTitle             = title;
         BannerMessage           = message;
         BannerOpen              = true;
+    }
+
+    public void RecordAdditionalLocksmithClean(int removed, long freedBytes, IReadOnlyList<LockedFileItem>? remaining = null)
+    {
+        if (remaining is not null)
+        {
+            LastLockedFiles.Clear();
+            LastLockedFiles.AddRange(remaining.Where(f => File.Exists(f.FilePath)));
+        }
+        else
+        {
+            LastLockedFiles.RemoveAll(f => !File.Exists(f.FilePath));
+        }
+
+        HasLockedFiles = LastLockedFiles.Count > 0;
+        if (HasLockedFiles)
+            UnlockFilesLabel = $"Unlock Files ({LastLockedFiles.Count:N0} · {ScanResult.FormatBytes(LastLockedFiles.Sum(f => f.SizeBytes))})";
+
+        if (freedBytes > 0)
+        {
+            if (AppSettings.Instance.CleanHistoryEnabled)
+            {
+                var history = AppSettings.Instance.CleanHistory;
+                history.Add(new CleanHistoryEntry(DateTime.Now, freedBytes, removed));
+                while (history.Count > 50) history.RemoveAt(0);
+                AppSettings.Instance.Save();
+            }
+            RefreshFooterMetadata();
+            RefreshSystemDriveInfo();
+            StatusText = $"File Locksmith freed an additional {ScanResult.FormatBytes(freedBytes)} ({removed:N0} files).";
+        }
     }
 
     [RelayCommand]
@@ -511,7 +545,12 @@ public partial class CleanerPageViewModel : ObservableObject
         {
             var scannedBytes      = _lastScan.Sum(r => r.TotalBytes);
             var freedBreakdown    = new List<(CleanerEntry Entry, int Files, int Regs, int RequestedItems, int CleanedCount, long Bytes)>();
-            (removed, freedBytes) = await CleanResultsWithBreakdownAsync(_lastScan.ToList(), freedBreakdown, new Progress<string>(msg => StatusText = msg), cts.Token);
+            LastLockedFiles.Clear();
+            HasLockedFiles = false;
+            (removed, freedBytes) = await CleanResultsWithBreakdownAsync(_lastScan.ToList(), freedBreakdown, LastLockedFiles, new Progress<string>(msg => StatusText = msg), cts.Token);
+            HasLockedFiles        = LastLockedFiles.Count > 0;
+            if (HasLockedFiles)
+                UnlockFilesLabel  = $"Unlock Files ({LastLockedFiles.Count:N0} · {ScanResult.FormatBytes(LastLockedFiles.Sum(f => f.SizeBytes))})";
             var skippedBytes      = Math.Max(0, scannedBytes - freedBytes);
             var requestedItems    = freedBreakdown.Sum(x => x.RequestedItems);
             var skippedItems      = Math.Max(0, requestedItems - removed);
@@ -675,7 +714,22 @@ public partial class CleanerPageViewModel : ObservableObject
                 return;
             }
 
-            var (removed, freedBytes) = await _cleaner.CleanAsync(result, new Progress<string>(msg => StatusText = msg), cts.Token);
+            LastLockedFiles.Clear();
+            HasLockedFiles = false;
+            if (result.LockedFiles.Count > 0)
+            {
+                foreach (var (fp, sz) in result.LockedFiles)
+                    LastLockedFiles.Add(new LockedFileItem(fp, sz, result.Entry.Name, "Locked at scan"));
+            }
+
+            var outcome = await _cleaner.CleanDetailedAsync(result, new Progress<string>(msg => StatusText = msg), cts.Token);
+            var (removed, freedBytes) = (outcome.RemovedCount, outcome.FreedBytes);
+            if (outcome.LockedFiles.Count > 0)
+                LastLockedFiles.AddRange(outcome.LockedFiles);
+
+            HasLockedFiles = LastLockedFiles.Count > 0;
+            if (HasLockedFiles)
+                UnlockFilesLabel = $"Unlock Files ({LastLockedFiles.Count:N0} · {ScanResult.FormatBytes(LastLockedFiles.Sum(f => f.SizeBytes))})";
             RemoveScanResult(result);
             entryVm.SizeText     = "";
             entryVm.ScannedBytes = 0;
@@ -753,8 +807,13 @@ public partial class CleanerPageViewModel : ObservableObject
         foreach (var vm in selected.Where(vm => !_lastScan.Any(r => r.Entry == vm.Entry)))
             await AnalyzeEntryInternalAsync(vm.Entry, progress, keepDetailSelection: false);
 
+        LastLockedFiles.Clear();
+        HasLockedFiles = false;
         var results               = _lastScan.Where(r => selected.Any(vm => vm.Entry == r.Entry)).ToList();
-        var (removed, freedBytes) = await CleanResultsAsync(results, progress);
+        var (removed, freedBytes) = await CleanResultsWithBreakdownAsync(results, [], LastLockedFiles, progress);
+        HasLockedFiles            = LastLockedFiles.Count > 0;
+        if (HasLockedFiles)
+            UnlockFilesLabel      = $"Unlock Files ({LastLockedFiles.Count:N0} · {ScanResult.FormatBytes(LastLockedFiles.Sum(f => f.SizeBytes))})";
 
         UpdateTotalsFromLastScan();
         RefreshAllCategoryAndMacroStats();
@@ -1155,6 +1214,7 @@ public partial class CleanerPageViewModel : ObservableObject
     private async Task<(int count, long bytes)> CleanResultsWithBreakdownAsync(
         List<ScanResult> results,
         List<(CleanerEntry Entry, int Files, int Regs, int RequestedItems, int CleanedCount, long Bytes)> breakdown,
+        List<LockedFileItem> lockedAccumulator,
         IProgress<string> progress,
         CancellationToken token = default)
     {
@@ -1166,7 +1226,15 @@ public partial class CleanerPageViewModel : ObservableObject
         {
             int files = result.FilesToDelete.Count;
             int regs  = result.RegistryToDelete.Count;
-            var (c, b) = await _cleaner.CleanAsync(result, progress, token);
+            if (result.LockedFiles.Count > 0)
+            {
+                foreach (var (fp, sz) in result.LockedFiles)
+                    lockedAccumulator.Add(new LockedFileItem(fp, sz, result.Entry.Name, "Locked at scan"));
+            }
+            var outcome = await _cleaner.CleanDetailedAsync(result, progress, token);
+            var (c, b) = (outcome.RemovedCount, outcome.FreedBytes);
+            if (outcome.LockedFiles.Count > 0)
+                lockedAccumulator.AddRange(outcome.LockedFiles);
             count += c;
             bytes += b;
             breakdown.Add((result.Entry, files, regs, files + regs, c, b));
@@ -1409,6 +1477,10 @@ public partial class ScanResultLine : ObservableObject
 
     public bool HasAppIcon => AppIconBitmap is not null;
     public bool ShowChevron => Result is not null;
+    public bool HasLockedFiles => Result is { LockedFiles.Count: > 0 };
+    public string LockedLabel => Result is { LockedFiles.Count: > 0 }
+        ? $"{Result.LockedFiles.Count:N0} locked ({ScanResult.FormatBytes(Result.LockedBytes)})"
+        : "";
 
     public ScanResultLine(
         string appName,
