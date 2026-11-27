@@ -194,7 +194,29 @@
 - ✅ **12.7** — **Fix Scan-Time Locked Files, `CleanCategoryAsync` Lock Merge, Locked-Only Inspector, Dialog Guards & `PruneUnselectedScanResults` (v5-1, v5-2, v5-3, v5-4, v5-7b, v6-1, v6-2):** Write failing TDD tests for lock-merge/dedup across all 3 clean scopes (`RunCleanerAsync`, `CleanCategoryAsync`, `CleanSingleEntryAsync`) and `PruneUnselectedScanResults`; implement `SyncScanTimeLockedFiles`, `PruneUnselectedScanResults`, `CleanCategoryAsync` lock merge, locked-only inspector display, `FileLocksmithDialog` `_isBusy` + `try/catch`, and `CleanerPage` `_isDialogOpen` guard; verify tests + build, and commit locally on `feat/file-locksmith`.
 
 #### Branch: `main` (Pure `upstream-mirror + branches`)
-- ⬜ **12.8** — **Rebuild Pure `main`, Verify `dotnet test` + `Release x64` Publish & Deploy:** Reset `main` to `upstream-mirror`, merge `custom` + all `feat/*` + `perf/parallel-file-scanning` cleanly, run `dotnet test`, `dotnet build`, `dotnet publish -c Release -r win-x64 --self-contained true -p:Platform=x64`, deploy to `D:\Program\FluentCleaner`, and push all branches to `origin`.
+- ✅ **12.8** — **Rebuild Pure `main`, Verify `dotnet test` + `Release x64` Publish & Deploy:** Reset `main` to `upstream-mirror`, merge `custom` + all `feat/*` + `perf/parallel-file-scanning` cleanly, run `dotnet test`, `dotnet build`, `dotnet publish -c Release -r win-x64 --self-contained true -p:Platform=x64`, deploy to `D:\Program\FluentCleaner`, and push all branches to `origin`.
+  > 📝 Publish: `ev-20261127T211859Z-2d95` (exit=0) | Tests: `ev-20261127T211853Z-d55d` (8/8 pass, exit=0) | 12 branches at origin.
+
+---
+
+### §13: File Locksmith Parallelization, Analyze Concurrency & Scan % / ETA Telemetry (Sorted by Branch)
+> **Plan Reference:** [`temp/locksmith_analyze_eta_plan.md`](temp/locksmith_analyze_eta_plan.md)  
+> **Baseline:** Strictly 64-bit (`win-x64`), multi-threaded/parallel where applicable, `/diagnosing-bugs` + `/tdd` + `/incremental-implementation`, zero direct commits on `upstream-mirror` or `main`.
+
+📝 Approved by user on 2026-11-28 (Go). Tasks below are locked.
+
+#### Branch: `feat/file-locksmith`
+- ⬜ **13.1** — **Parallelize & Directory-Group `FileLocksmithService` Restart Manager Attribution:** Group deduplicated locked files by parent directory before batching, run Restart Manager batches in parallel (`Parallel.ForEach`, `MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 4, 8)`) with `ConcurrentDictionary`/`ConcurrentBag`, cache `PID → ProcessName`, and report `IProgress<(int Done, int Total)>`. Commit locally on `feat/file-locksmith`.
+- ⬜ **13.2** — **Add Live Progress, Cancellation & Parallel Delete/Retry to `FileLocksmithDialog`:** Display determinate lock-analysis progress (`Analyzing locks: X / Y files (Z%)…`), wire a `CancellationTokenSource` cancelled on dialog `Unloaded`/`Closing`, and parallelize `CloseAndDelete_Click` and `RetryAll_Click` with `Parallel.ForEach` + `Interlocked`. Commit locally on `feat/file-locksmith`.
+
+#### Branch: `perf/parallel-file-scanning`
+- ⬜ **13.3** — **Optimize `CleaningService` Analyze with Single-Pass `FileSystemEnumerable` & Parallel Subdirectory Walk:** Replace per-pattern `Directory.EnumerateFiles` + redundant `FileInfo.Length`/`File.Exists` syscalls with single-pass `FileSystemEnumerable<(string Path, long Size)>` and `Marshal.GetLastWin32Error()` on `CreateFileW` failure, plus `Parallel.ForEach` over top-level subdirectories at `RECURSE` depth 0. Commit locally on `perf/parallel-file-scanning`.
+
+#### Branch: `feat/ui-enhancements`
+- ⬜ **13.4** — **Implement `ScanProgressEstimator` & Scan Percentage + ETA Telemetry in `CleanerPage`:** Create `ScanProgressEstimator` (smoothed EMA ETA after warm-up), wire `ScanTelemetryText` (`"42% · 81 / 192 · ~6s left"`) into `CleanerPageViewModel.AnalyzeAsync`, and upgrade `CleanerPage.xaml` `Grid.Row="0"` (the red-rectangle progress strip) to show percentage and ETA while `IsBusy` is true. Commit locally on `feat/ui-enhancements`.
+
+#### Branch: `custom` & `main` (Pure `upstream-mirror + branches`)
+- ⬜ **13.5** — **Add TDD Tests on `custom`, Rebuild Pure `main`, Publish, Deploy & Push All Branches:** Add TDD unit tests for `ScanProgressEstimator` (and Locksmith/CleaningService seams) on `custom`, reset `main` to `upstream-mirror` and merge all branches cleanly (zero direct feature commits on `main` or `upstream-mirror`), verify `dotnet test` + `dotnet publish -c Release -r win-x64 --self-contained true -p:Platform=x64` via `evidence_gate.py`, deploy to `D:\Program\FluentCleaner`, and push all branches to `origin`.
 
 ---
 
