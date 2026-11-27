@@ -85,18 +85,7 @@ internal static class CookieService
                 database.Execute("BEGIN IMMEDIATE");
                 try
                 {
-                    database.PopulateTempDomainTable("_target_domains", selectedDomains);
-                    database.Execute($@"
-                        DELETE FROM {table}
-                        WHERE lower(ltrim({column}, '.')) IN (SELECT domain FROM _target_domains)
-                           OR (
-                               instr(lower(ltrim({column}, '.')), '.') > 0
-                               AND substr(lower(ltrim({column}, '.')), instr(lower(ltrim({column}, '.')), '.') + 1) IN (SELECT domain FROM _target_domains)
-                           )
-                           OR (
-                               instr(substr(lower(ltrim({column}, '.')), instr(lower(ltrim({column}, '.')), '.') + 1), '.') > 0
-                               AND substr(substr(lower(ltrim({column}, '.')), instr(lower(ltrim({column}, '.')), '.') + 1), instr(substr(lower(ltrim({column}, '.')), instr(lower(ltrim({column}, '.')), '.') + 1), '.') + 1) IN (SELECT domain FROM _target_domains)
-                           )");
+                    database.Execute($"DELETE FROM {table} WHERE {deleteExpression}");
                     database.Execute("COMMIT");
                 }
                 catch
