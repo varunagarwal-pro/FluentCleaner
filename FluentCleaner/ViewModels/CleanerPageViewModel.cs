@@ -503,6 +503,7 @@ public partial class CleanerPageViewModel : ObservableObject
             }
             SortResultLinesBySize(descending: true);
             RefreshAllCategoryAndMacroStats();
+            SyncScanTimeLockedFiles();
             StatusText = ResourceService.Fmt("St_ScanComplete", totalFiles, totalReg, TotalSize);
             OnPropertyChanged(nameof(CanExportReport));
         }
@@ -526,9 +527,12 @@ public partial class CleanerPageViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanClean))]
     private async Task RunCleanerAsync()
     {
+        PruneUnselectedScanResults();
+
         if (_lastScan.Count == 0)
             await AnalyzeAsync();
 
+        PruneUnselectedScanResults();
         if (_lastScan.Count == 0) return;
 
         IsBusy             = true;
@@ -710,7 +714,20 @@ public partial class CleanerPageViewModel : ObservableObject
 
             if (result.FilesToDelete.Count == 0 && result.RegistryToDelete.Count == 0)
             {
-                StatusText = ResourceService.Fmt("St_EntryNothingToClean", entryVm.Name);
+                if (result.LockedFiles.Count > 0)
+                {
+                    LastLockedFiles.Clear();
+                    foreach (var (fp, sz) in result.LockedFiles)
+                        LastLockedFiles.Add(new LockedFileItem(fp, sz, result.Entry.Name, "Locked at scan (in use)"));
+                    HasLockedFiles   = true;
+                    UnlockFilesLabel = $"Unlock Files ({LastLockedFiles.Count:N0} · {ScanResult.FormatBytes(LastLockedFiles.Sum(f => f.SizeBytes))})";
+                    ShowBanner(InfoBarSeverity.Warning, entryVm.Name,
+                        $"{result.LockedFiles.Count:N0} files ({ScanResult.FormatBytes(result.LockedBytes)}) are locked by running processes. Click 'Unlock Files' to close or schedule deletion on reboot.");
+                }
+                else
+                {
+                    StatusText = ResourceService.Fmt("St_EntryNothingToClean", entryVm.Name);
+                }
                 return;
             }
 
@@ -780,6 +797,7 @@ public partial class CleanerPageViewModel : ObservableObject
             SortResultLinesBySize(descending: true);
             UpdateTotalsFromLastScan();
             RefreshAllCategoryAndMacroStats();
+            SyncScanTimeLockedFiles();
             StatusText = ResourceService.Fmt("St_CategoryScanned", categoryVm.Name, selected.Count);
         }
         catch (OperationCanceledException)
@@ -811,7 +829,7 @@ public partial class CleanerPageViewModel : ObservableObject
         LastLockedFiles.Clear();
         HasLockedFiles = false;
         var results               = _lastScan.Where(r => selected.Any(vm => vm.Entry == r.Entry)).ToList();
-        var (removed, freedBytes) = await CleanResultsAsync(results, progress);
+        var (removed, freedBytes) = await CleanResultsWithBreakdownAsync(results, [], LastLockedFiles, progress);
         HasLockedFiles            = LastLockedFiles.Count > 0;
         if (HasLockedFiles)
             UnlockFilesLabel      = $"Unlock Files ({LastLockedFiles.Count:N0} · {ScanResult.FormatBytes(LastLockedFiles.Sum(f => f.SizeBytes))})";
@@ -884,6 +902,7 @@ public partial class CleanerPageViewModel : ObservableObject
         }
         _suppressSave = false;
         SaveSelection();
+        if (!isSelected) PruneUnselectedScanResults();
         RefreshAllCategoryAndMacroStats();
     }
 
@@ -893,6 +912,7 @@ public partial class CleanerPageViewModel : ObservableObject
         foreach (var entry in cat.Entries)
             entry.IsSelected = isSelected;
         _suppressSave = false;
+        if (!isSelected) PruneUnselectedScanResults();
         cat.RefreshStats();
         SaveSelection();
         RefreshMacroCardsOnly();
@@ -1016,6 +1036,8 @@ public partial class CleanerPageViewModel : ObservableObject
                     if (e.PropertyName == nameof(CleanerEntryViewModel.IsSelected))
                     {
                         SaveSelection(entryVm);
+                        if (!_suppressSave && !entryVm.IsSelected)
+                            PruneUnselectedScanResults();
                         catVm.RefreshStats();
                         RefreshMacroCardsOnly();
                         OnPropertyChanged(nameof(SelectedCountSummary));
@@ -1176,7 +1198,7 @@ public partial class CleanerPageViewModel : ObservableObject
         UpdateEntrySize(entry, result.TotalBytes, result.FormattedSize);
 
         ScanResultLine? line = null;
-        if (result.FilesToDelete.Count > 0 || result.RegistryToDelete.Count > 0)
+        if (result.FilesToDelete.Count > 0 || result.RegistryToDelete.Count > 0 || result.LockedFiles.Count > 0)
         {
             var catName = CategoryResolver.TryMapLangSecRef(entry).Name;
             var macro   = ResolveMacroGroup(catName);
@@ -1229,8 +1251,12 @@ public partial class CleanerPageViewModel : ObservableObject
             int regs  = result.RegistryToDelete.Count;
             var outcome = await _cleaner.CleanDetailedAsync(result, progress, token);
             var (c, b) = (outcome.RemovedCount, outcome.FreedBytes);
-            if (outcome.LockedFiles.Count > 0)
-                lockedAccumulator.AddRange(outcome.LockedFiles);
+            foreach (var lf in outcome.LockedFiles)
+                if (!lockedAccumulator.Any(x => x.FilePath.Equals(lf.FilePath, StringComparison.OrdinalIgnoreCase)))
+                    lockedAccumulator.Add(lf);
+            foreach (var (fp, sz) in result.LockedFiles)
+                if (!lockedAccumulator.Any(x => x.FilePath.Equals(fp, StringComparison.OrdinalIgnoreCase)))
+                    lockedAccumulator.Add(new LockedFileItem(fp, sz, result.Entry.Name, "Locked at scan (in use)"));
             count += c;
             bytes += b;
             breakdown.Add((result.Entry, files, regs, files + regs, c, b));
@@ -1305,7 +1331,70 @@ public partial class CleanerPageViewModel : ObservableObject
         if (line?.Result is not { } result) return;
 
         AddDetailGroup(ResourceService.Get("SuffixFiles"),    result.FilesToDelete, isRegistry: false);
+        AddDetailGroup("Locked / In Use",                     result.LockedFiles.Select(l => l.FilePath), isRegistry: false);
         AddDetailGroup(ResourceService.Get("SuffixRegistry"), result.RegistryToDelete.Select(r => r.ToString()), isRegistry: true);
+    }
+
+    private void SyncScanTimeLockedFiles(bool showBanner = true)
+    {
+        LastLockedFiles.Clear();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var result in _lastScan)
+        {
+            foreach (var (fp, sz) in result.LockedFiles)
+            {
+                if (seen.Add(fp))
+                    LastLockedFiles.Add(new LockedFileItem(fp, sz, result.Entry.Name, "Locked at scan (in use)"));
+            }
+        }
+
+        HasLockedFiles = LastLockedFiles.Count > 0;
+        if (HasLockedFiles)
+        {
+            long lockedBytes = LastLockedFiles.Sum(f => f.SizeBytes);
+            UnlockFilesLabel = $"Unlock Files ({LastLockedFiles.Count:N0} · {ScanResult.FormatBytes(lockedBytes)})";
+            if (showBanner)
+            {
+                ShowBanner(
+                    InfoBarSeverity.Warning,
+                    "Locked Files Detected",
+                    $"{LastLockedFiles.Count:N0} files ({ScanResult.FormatBytes(lockedBytes)}) are currently in use. Click Unlock Files to close their handles or exclude them.");
+            }
+        }
+        else
+        {
+            UnlockFilesLabel = "Unlock Files";
+            if (!showBanner && BannerOpen && BannerSeverity == InfoBarSeverity.Warning && BannerTitle == "Locked Files Detected")
+                BannerOpen = false;
+        }
+    }
+
+    private void PruneUnselectedScanResults()
+    {
+        if (IsBusy || _lastScan.Count == 0) return;
+
+        var selectedEntries = Categories
+            .SelectMany(c => c.Entries)
+            .Where(e => e.IsSelected)
+            .Select(e => e.Entry)
+            .ToHashSet();
+
+        var toRemove = _lastScan.Where(r => !selectedEntries.Contains(r.Entry)).ToList();
+        if (toRemove.Count == 0) return;
+
+        foreach (var result in toRemove)
+        {
+            if (SelectedResultLine?.Result == result)
+                SelectedResultLine = null;
+
+            RemoveScanResult(result);
+            UpdateEntrySize(result.Entry, 0, "");
+        }
+
+        UpdateTotalsFromLastScan();
+        RefreshAllCategoryAndMacroStats();
+        SyncScanTimeLockedFiles(showBanner: false);
+        OnPropertyChanged(nameof(CanClean));
     }
 
     private void AddDetailGroup(string title, IEnumerable<string> lines, bool isRegistry)
@@ -1329,6 +1418,7 @@ public partial class CleanerPageViewModel : ObservableObject
         }
         _suppressSave = false;
         SaveSelection();
+        if (!value) PruneUnselectedScanResults();
         RefreshMacroCardsOnly();
         OnPropertyChanged(nameof(SelectedCountSummary));
     }
@@ -1347,6 +1437,7 @@ public partial class CleanerPageViewModel : ObservableObject
         }
         _suppressSave = false;
         SaveSelection();
+        PruneUnselectedScanResults();
         RefreshMacroCardsOnly();
         OnPropertyChanged(nameof(SelectedCountSummary));
     }

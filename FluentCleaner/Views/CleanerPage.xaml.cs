@@ -170,22 +170,40 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
 
     // --- Inline Filter Pills ---------------------------------------------------
 
+    private bool _isDialogOpen;
+
     private async void ShareSelection_Click(object sender, RoutedEventArgs e)
     {
-        await FluentSeedDialog.OpenAsync(ViewModel, XamlRoot, ActualTheme);
+        if (_isDialogOpen) return;
+        _isDialogOpen = true;
+        try
+        {
+            await FluentSeedDialog.OpenAsync(ViewModel, XamlRoot, ActualTheme);
+        }
+        finally
+        {
+            _isDialogOpen = false;
+        }
     }
 
     private async void UnlockLockedFiles_Click(object sender, RoutedEventArgs e)
     {
-        if (ViewModel.LastLockedFiles.Count == 0) return;
-
-        var dialog = new FileLocksmithDialog(ViewModel.LastLockedFiles)
+        if (_isDialogOpen || ViewModel.LastLockedFiles.Count == 0) return;
+        _isDialogOpen = true;
+        try
         {
-            XamlRoot       = XamlRoot,
-            RequestedTheme = ActualTheme
-        };
-        await dialog.ShowAsync();
-        ViewModel.RecordAdditionalLocksmithClean(dialog.AdditionalRemovedCount, dialog.AdditionalFreedBytes, dialog.RemainingLockedFiles);
+            var dialog = new FileLocksmithDialog(ViewModel.LastLockedFiles)
+            {
+                XamlRoot       = XamlRoot,
+                RequestedTheme = ActualTheme
+            };
+            await dialog.ShowAsync();
+            ViewModel.RecordAdditionalLocksmithClean(dialog.AdditionalRemovedCount, dialog.AdditionalFreedBytes, dialog.RemainingLockedFiles);
+        }
+        finally
+        {
+            _isDialogOpen = false;
+        }
     }
 
     private void RestartElevated_Click(object sender, RoutedEventArgs e)
