@@ -597,7 +597,7 @@ public class CleaningService
        shouldn't be able to touch them. Add a line to protect more. */
     private static readonly string[] ProtectedSegments =
     {
-        // browser extension databases (1Password, Bitwarden, uBlock filter lists…);
+        // browser extension databases (1Password, Bitwarden, uBlock filter listsâ€¦);
         // normal site storage ("https_...") stays cleanable, only "chrome-extension_" is off-limits
         @"\IndexedDB\chrome-extension_",
     };
@@ -655,7 +655,7 @@ public class CleaningService
        this is purely a string-prefix transform. */
     private sealed class PrefixedProgress(string prefix, IProgress<string> inner) : IProgress<string>
     {
-        public void Report(string path) => inner.Report($"{prefix}  \u203A  {path}");
+        public void Report(string path) => inner.Report($"{prefix}  â€º  {path}");
     }
 
     // --- P/Invoke -------------------------------------------------

@@ -8,6 +8,8 @@ namespace FluentCleaner.Views;
 public sealed partial class FileLocksmithDialog : ContentDialog
 {
     private List<LockedFileItem> _remaining;
+    private bool _isBusy;
+
     public int  AdditionalRemovedCount { get; private set; }
     public long AdditionalFreedBytes   { get; private set; }
     public IReadOnlyList<LockedFileItem> RemainingLockedFiles => _remaining;
@@ -16,33 +18,46 @@ public sealed partial class FileLocksmithDialog : ContentDialog
     {
         InitializeComponent();
         _remaining = lockedFiles.DistinctBy(f => f.FilePath, StringComparer.OrdinalIgnoreCase).ToList();
-        Loaded += async (_, _) => await RefreshLocksAsync();
+        Loaded += async (_, _) =>
+        {
+            try { await RefreshLocksAsync(); }
+            catch (Exception ex) { ShowActionInfo(InfoBarSeverity.Error, "Lock Analysis Error", ex.Message); }
+        };
+    }
+
+    private void SetBusy(bool busy)
+    {
+        _isBusy                     = busy;
+        LoadingBar.Visibility       = busy ? Visibility.Visible : Visibility.Collapsed;
+        BtnRetryAll.IsEnabled       = !busy && _remaining.Count > 0;
+        BtnScheduleReboot.IsEnabled = !busy && _remaining.Count > 0;
+        ProcessList.IsHitTestVisible = !busy;
     }
 
     private async Task RefreshLocksAsync()
     {
-        LoadingBar.Visibility = Visibility.Visible;
-        BtnRetryAll.IsEnabled = false;
-        BtnScheduleReboot.IsEnabled = false;
-
-        _remaining = _remaining.Where(f => File.Exists(f.FilePath)).ToList();
-        UpdateSummaryText();
-
-        if (_remaining.Count == 0)
+        SetBusy(true);
+        try
         {
-            ProcessList.ItemsSource = Array.Empty<LockingProcessGroup>();
-            EmptyProcessesText.Visibility = Visibility.Collapsed;
-            LoadingBar.Visibility = Visibility.Collapsed;
-            ShowActionInfo(InfoBarSeverity.Success, "All Locked Files Cleared", "Every previously locked file has been removed or excluded.");
-            return;
-        }
+            _remaining = _remaining.Where(f => File.Exists(f.FilePath)).ToList();
+            UpdateSummaryText();
 
-        var (processes, _) = await FileLocksmithService.FindLockingProcessesAsync(_remaining);
-        ProcessList.ItemsSource = processes;
-        EmptyProcessesText.Visibility = processes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        LoadingBar.Visibility = Visibility.Collapsed;
-        BtnRetryAll.IsEnabled = true;
-        BtnScheduleReboot.IsEnabled = true;
+            if (_remaining.Count == 0)
+            {
+                ProcessList.ItemsSource       = Array.Empty<LockingProcessGroup>();
+                EmptyProcessesText.Visibility = Visibility.Collapsed;
+                ShowActionInfo(InfoBarSeverity.Success, "All Locked Files Cleared", "Every previously locked file has been removed or excluded.");
+                return;
+            }
+
+            var (processes, _)            = await FileLocksmithService.FindLockingProcessesAsync(_remaining);
+            ProcessList.ItemsSource       = processes;
+            EmptyProcessesText.Visibility = processes.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+        finally
+        {
+            SetBusy(false);
+        }
     }
 
     private void UpdateSummaryText()
@@ -55,93 +70,122 @@ public sealed partial class FileLocksmithDialog : ContentDialog
 
     private async void CloseAndDelete_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: LockingProcessGroup group }) return;
+        if (_isBusy || sender is not Button { Tag: LockingProcessGroup group }) return;
 
-        LoadingBar.Visibility = Visibility.Visible;
-        bool closed = await FileLocksmithService.CloseProcessAsync(group.ProcessId, group.ProcessName);
-
-        int deleted = 0;
-        long freed = 0;
-        await Task.Run(() =>
+        SetBusy(true);
+        try
         {
-            foreach (var item in group.Files)
+            bool closed = await FileLocksmithService.CloseProcessAsync(group.ProcessId, group.ProcessName);
+
+            int deleted = 0;
+            long freed  = 0;
+            var snapshot = group.Files.ToList();
+            await Task.Run(() =>
             {
-                if (FileLocksmithService.TryForceDeleteOrTruncate(item.FilePath, out long b))
+                foreach (var item in snapshot)
                 {
-                    deleted++;
-                    freed += b;
+                    if (FileLocksmithService.TryForceDeleteOrTruncate(item.FilePath, out long b))
+                    {
+                        deleted++;
+                        freed += b;
+                    }
                 }
-            }
-        });
+            });
 
-        AdditionalRemovedCount += deleted;
-        AdditionalFreedBytes   += freed;
+            AdditionalRemovedCount += deleted;
+            AdditionalFreedBytes   += freed;
 
-        ShowActionInfo(
-            deleted > 0 ? InfoBarSeverity.Success : InfoBarSeverity.Warning,
-            closed ? $"Closed {group.AppDisplayName}" : $"Could not close {group.AppDisplayName}",
-            deleted > 0
-                ? $"Deleted {deleted:N0} files and reclaimed {ScanResult.FormatBytes(freed)}."
-                : "Files remained locked after closing. Try running as administrator or schedule delete on reboot.");
+            ShowActionInfo(
+                deleted > 0 ? InfoBarSeverity.Success : InfoBarSeverity.Warning,
+                closed ? $"Closed {group.AppDisplayName}" : $"Could not close {group.AppDisplayName}",
+                deleted > 0
+                    ? $"Deleted {deleted:N0} files and reclaimed {ScanResult.FormatBytes(freed)}."
+                    : "Files remained locked after closing. Try running as administrator or schedule delete on reboot.");
 
-        await RefreshLocksAsync();
+            await RefreshLocksAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowActionInfo(InfoBarSeverity.Error, "Unlock Failed", ex.Message);
+            SetBusy(false);
+        }
     }
 
     private async void ExcludeLockedFile_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: LockedFileItem item }) return;
+        if (_isBusy || sender is not Button { Tag: LockedFileItem item }) return;
 
-        var dir  = Path.GetDirectoryName(item.FilePath);
-        var file = Path.GetFileName(item.FilePath);
-        if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(file)) return;
-
-        var rule = $"FILE|{dir}|{file}";
-        var settings = AppSettings.Instance;
-        if (!settings.GlobalExclusions.Contains(rule, StringComparer.OrdinalIgnoreCase))
+        try
         {
-            settings.GlobalExclusions.Add(rule);
-            settings.GlobalExclusionsEnabled = true;
-            settings.Save();
-        }
+            var dir  = Path.GetDirectoryName(item.FilePath);
+            var file = Path.GetFileName(item.FilePath);
+            if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(file)) return;
 
-        _remaining.RemoveAll(r => string.Equals(r.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
-        ShowActionInfo(InfoBarSeverity.Informational, "Excluded File", $"Added {file} to Global Exclusions.");
-        await RefreshLocksAsync();
+            var rule = $"FILE|{dir}|{file}";
+            var settings = AppSettings.Instance;
+            if (!settings.GlobalExclusions.Contains(rule, StringComparer.OrdinalIgnoreCase))
+            {
+                settings.GlobalExclusions.Add(rule);
+                settings.GlobalExclusionsEnabled = true;
+                settings.Save();
+            }
+
+            _remaining.RemoveAll(r => string.Equals(r.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
+            ShowActionInfo(InfoBarSeverity.Informational, "Excluded File", $"Added {file} to Global Exclusions.");
+            await RefreshLocksAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowActionInfo(InfoBarSeverity.Error, "Exclusion Failed", ex.Message);
+            SetBusy(false);
+        }
     }
 
     private async void RetryAll_Click(object sender, RoutedEventArgs e)
     {
-        LoadingBar.Visibility = Visibility.Visible;
-        int deleted = 0;
-        long freed = 0;
+        if (_isBusy) return;
 
-        await Task.Run(() =>
+        SetBusy(true);
+        try
         {
-            foreach (var item in _remaining.ToList())
+            int deleted  = 0;
+            long freed   = 0;
+            var snapshot = _remaining.ToList();
+
+            await Task.Run(() =>
             {
-                if (FileLocksmithService.TryForceDeleteOrTruncate(item.FilePath, out long b))
+                foreach (var item in snapshot)
                 {
-                    deleted++;
-                    freed += b;
+                    if (FileLocksmithService.TryForceDeleteOrTruncate(item.FilePath, out long b))
+                    {
+                        deleted++;
+                        freed += b;
+                    }
                 }
-            }
-        });
+            });
 
-        AdditionalRemovedCount += deleted;
-        AdditionalFreedBytes   += freed;
+            AdditionalRemovedCount += deleted;
+            AdditionalFreedBytes   += freed;
 
-        ShowActionInfo(
-            deleted > 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational,
-            "Retry Complete",
-            deleted > 0
-                ? $"Freed {ScanResult.FormatBytes(freed)} across {deleted:N0} files."
-                : "Remaining files are still held open by active processes or Windows services.");
+            ShowActionInfo(
+                deleted > 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational,
+                "Retry Complete",
+                deleted > 0
+                    ? $"Freed {ScanResult.FormatBytes(freed)} across {deleted:N0} files."
+                    : "Remaining files are still held open by active processes or Windows services.");
 
-        await RefreshLocksAsync();
+            await RefreshLocksAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowActionInfo(InfoBarSeverity.Error, "Retry Failed", ex.Message);
+            SetBusy(false);
+        }
     }
 
     private void ScheduleReboot_Click(object sender, RoutedEventArgs e)
     {
+        if (_isBusy) return;
         int queued = FileLocksmithService.ScheduleDeleteOnReboot(_remaining.Select(r => r.FilePath));
         ShowActionInfo(
             queued > 0 ? InfoBarSeverity.Success : InfoBarSeverity.Warning,
