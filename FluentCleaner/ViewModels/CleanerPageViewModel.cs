@@ -25,6 +25,8 @@ public partial class CleanerPageViewModel : ObservableObject
     private List<CleanerEntry> _loadedEntries    = [];      // installed main-DB entries + all enabled custom entries (custom skips IsInstalled)
     private List<string> _lastPaths = [];                   // stored so Refresh can reload without the paths being passed again
     private bool _suppressSave;                             // prevents N disk writes when SelectAll/SelectNone fires per-entry callbacks
+    private bool _suppressMacroToggle;                      // prevents re-entrant loops when syncing macro-card switches
+    private string? _lastAddedExclusionRule;                // supports 1-click Undo Exclusion from InfoBar
     private CancellationTokenSource? _cts;                  // lives only during an active scan or clean; null = nothing running
     private CancellationTokenSource? _searchDebounceCts;
 

@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.Foundation;
@@ -191,6 +192,26 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
         {
             ViewModel.ShowBanner(InfoBarSeverity.Error, "Export Failed", ex.Message);
         }
+    }
+
+    // --- Status bar ----------------------------------------------------------
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => UpdateStatusBar();
+
+    private void OnCategoriesChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => UpdateStatusBar();
+
+    private void EntryCheck_Changed(object sender, RoutedEventArgs e) => UpdateStatusBar();
+
+    private void UpdateStatusBar()
+    {
+        var entries = ViewModel.Categories.SelectMany(c => c.Entries).ToList();
+        var total    = entries.Count;
+        var selected = entries.Count(e => e.IsSelected);
+        // Update status text visible in the footer bar (ViewModel.StatusText is bound in XAML)
+        if (total > 0)
+            ViewModel.StatusText =
+                ResourceService.Fmt("St_StatusEntries", total, ViewModel.CatalogueCount) + "   " +
+                ResourceService.Fmt("St_StatusSelected", selected);
     }
 
     // --- Inline Filter Pills ---------------------------------------------------
@@ -674,7 +695,7 @@ public partial class PathKindConverter : IValueConverter
         if (value is not string s || string.IsNullOrWhiteSpace(s)) return "";
         if (s.StartsWith("HK", StringComparison.OrdinalIgnoreCase)) return "Registry";
 
-        var ext = Path.GetExtension(s);
+        var ext = System.IO.Path.GetExtension(s);
         return string.IsNullOrEmpty(ext) ? "File" : ext.TrimStart('.').ToUpperInvariant();
     }
 
