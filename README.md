@@ -45,6 +45,32 @@ here's a first preview so you can get a feel for the direction. i might end up f
 
 if you like it, cool. if not, also fair
 
+---
+
+## About This Fork & Submitted Upstream PRs
+
+This repository (`varunagarwal-pro/FluentCleaner`) is a fork of [**builtbybel/FluentCleaner**](https://github.com/builtbybel/FluentCleaner).
+
+Every change listed below lives on its own branch and has been submitted as a separate Pull Request to the upstream repository. Incorporating them upstream is entirely up to the original maintainer. Everything from the original README—including the download links, FAQ, and philosophy—is kept intact below.
+
+### What Changed (By Branch / PR)
+
+| Branch / PR | What It Does | Measured / Structural Impact |
+|---|---|---|
+| `feat/file-locksmith` | Replaces Restart Manager binary-split scanning with PowerToys-style `NtQuerySystemInformation` (`SystemExtendedHandleInformation`), `ObjectTypeIndex` pre-filtering, `QueryDosDeviceW` path mapping, 40 ms stall-safe `NtQueryObject` queries, parallel per-PID handle/module workers, and in-memory pruning on **Close & Delete** / **Exclude**. | Cuts lock analysis on ~560 files from **>60 s** of Restart Manager IPC round-trips down to a single kernel snapshot + parallel workers, skips 95%+ of non-file handles before `DuplicateHandle`, and stops re-scanning all categories after unlocking one process. |
+| `perf/parallel-file-scanning` | Replaces per-pattern `Directory.EnumerateFiles` + extra `FileInfo.Length` / `File.Exists` calls with single-pass `FileSystemEnumerable`, `Marshal.GetLastWin32Error()` deletability checks, `Parallel.ForEach` over top-level subdirectories, and parallel file deletion / CLI execution. | Eliminates redundant kernel stat syscalls per file and saturates multi-core NVMe I/O during both **Analyze** and **Clean**. |
+| `feat/ui-enhancements` | Adds `ScanProgressEstimator` (rate-based `%` and ETA with warm-up guard), 150 ms `SearchText` debounce, 20 s `HttpClient` timeout for AI explanations, descending size sort, and NativeAOT `SettingsNav` fixes. | Prevents UI thread churn while typing in search and avoids indefinite network hangs. |
+| `feat/fluent-enterprise-ui` | Adds the live `% · rules · ETA` progress strip, pinnable/auto-collapsible nav rail, projected SSD space preview, lifetime sparkline flyout, cached `PackageManager` + throttled icon extraction, Win11 System32 icon fallback, and deterministic `AppWindow.Closing` cleanup. | Removes repeated `PackageManager` queries on UI render and guarantees clean process exit. |
+| `feat/cookie-manager-scale-intelligent-scan` | Moves cookie whitelist matching to an indexed SQLite temp table (`PopulateTempDomainTable`), adds 1-click intelligent domain scanning, and gives cookie lists fixed-height internal scrollbars. | Benchmarked at **13.4 ms** across 1,000+ keep-list domains with zero SQLite expression-depth errors. |
+| `feat/sqlite-vacuum-compactor` | Adds a 64-bit multi-core native `winsqlite3.dll` `VACUUM` pass (**Optimize & Compact Databases**) for Chrome, Edge, Brave, Firefox, and VS Code. | Compacts fragmented browser/editor SQLite databases in parallel without external CLI tools. |
+| `feat/shell-notification-refresh` | Fires `SHChangeNotify` after cleanup. | Refreshes Explorer views and icon caches immediately without restarting `explorer.exe`. |
+| `feat/process-detection-badges` | Adds 64-bit async running-process detection with TTL caching, auto-refresh on window focus, and `Unloaded` event cleanup. | Surfaces **In Use** badges accurately without blocking the UI thread or leaking window activation handlers. |
+| `feat/log-file-truncation` | Adds `FileKeyFlag.Truncate` using shared read/write `FileStream.SetLength(0)` with `IOException` lock-recovery fallback. | Reclaims active, locked log files down to 0 bytes when deletion is blocked. |
+| `feat/regex-path-filtering` | Adds compiled `wholeregex` / `nwholeregex` directory pruning with a 250 ms ReDoS timeout (`SafeIsMatch`). | Skips excluded directory trees before recursion and prevents catastrophic regex backtracking. |
+| `custom` | Disposes `Process.Start` handles across 9 call sites, adds 18 xUnit tests (`ScanProgressEstimatorTests` + audit seam tests), and tracks work in `Tasks.md`. | Eliminates native process handle leaks and locks down core regressions with automated tests. |
+
+---
+
 ## 🚀 Download Latest Stable
 FluentCleaner comes in two flavors. Same cleaning engine and winapp2.ini parser underneath, different UI and runtime story.
 
