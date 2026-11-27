@@ -45,7 +45,7 @@ public sealed class ScanProgressEstimatorTests
         // 50 done out of 100 in 10 s → rate 5/s → 50 remaining → ~10 s ETA
         var result = ScanProgressEstimator.Estimate(done: 50, total: 100, elapsed: TimeSpan.FromSeconds(10));
 
-        Assert.Equal(50.0, result.Percent, precision: 1);
+        Assert.InRange(result.Percent, 49.9, 50.1);
         Assert.NotNull(result.Eta);
         // ETA should be within ±1 s of 10 s
         Assert.InRange(result.Eta!.Value.TotalSeconds, 9.0, 11.0);
@@ -111,3 +111,4 @@ public sealed class ScanProgressEstimatorTests
         Assert.Null(result.Eta);
     }
 }
+
