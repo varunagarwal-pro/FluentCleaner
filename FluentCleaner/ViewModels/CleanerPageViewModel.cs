@@ -33,7 +33,6 @@ public partial class CleanerPageViewModel : ObservableObject
     // --- Observable state ---------------------------------------------------
     [ObservableProperty] public partial int     CatalogueCount { get; set; }
     [ObservableProperty] public partial bool    OfferElevation { get; set; }
-    [ObservableProperty] public partial string  ScanTelemetryText { get; set; } = "";
 
     private static readonly bool IsElevated =
         new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
