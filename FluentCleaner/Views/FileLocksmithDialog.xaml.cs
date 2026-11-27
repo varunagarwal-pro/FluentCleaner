@@ -47,7 +47,7 @@ public sealed partial class FileLocksmithDialog : ContentDialog
     private void UpdateSummaryText()
     {
         long totalBytes = _remaining.Sum(f => f.SizeBytes);
-        SummaryText.Text = _remaining.Count > 0
+        DialogSummaryText.Text = _remaining.Count > 0
             ? $"{_remaining.Count:N0} locked files remaining · {ScanResult.FormatBytes(totalBytes)}"
             : "0 locked files remaining";
     }

@@ -17,7 +17,7 @@
 
         <!-- Summary banner -->
         <StackPanel Grid.Row="0" Spacing="4">
-            <TextBlock x:Name="SummaryText"
+            <TextBlock x:Name="DialogSummaryText"
                        Style="{StaticResource BodyStrongTextBlockStyle}"
                        Text="Analyzing file locks via Windows Restart Manager…" />
             <TextBlock Text="Close user applications holding file locks to delete them immediately, or schedule OS-locked files for deletion on your next reboot."
@@ -82,7 +82,7 @@
 
                                     <Button Grid.Column="1"
                                             Content="Close &amp; Delete"
-                                            Tag="{x:Bind}"
+                                            Tag="{Binding}"
                                             Click="CloseAndDelete_Click"
                                             IsEnabled="{x:Bind CanClose}"
                                             Style="{StaticResource ElectricAccentButtonStyle}"

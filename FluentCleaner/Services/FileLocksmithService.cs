@@ -5,13 +5,28 @@ namespace FluentCleaner.Services;
 
 public sealed record LockedFileItem(string FilePath, long SizeBytes, string EntryName, string Reason);
 
-public sealed record LockingProcessGroup(
-    int ProcessId,
-    string ProcessName,
-    string AppDisplayName,
-    bool IsSystemProtected,
-    List<LockedFileItem> Files)
+public sealed class LockingProcessGroup
 {
+    public int ProcessId { get; }
+    public string ProcessName { get; }
+    public string AppDisplayName { get; }
+    public bool IsSystemProtected { get; }
+    public List<LockedFileItem> Files { get; }
+
+    public LockingProcessGroup(
+        int processId,
+        string processName,
+        string appDisplayName,
+        bool isSystemProtected,
+        List<LockedFileItem> files)
+    {
+        ProcessId = processId;
+        ProcessName = processName;
+        AppDisplayName = appDisplayName;
+        IsSystemProtected = isSystemProtected;
+        Files = files;
+    }
+
     public int    FileCount => Files.Count;
     public long   TotalBytes => Files.Sum(f => f.SizeBytes);
     public string SummaryText => $"{FileCount:N0} locked {(FileCount == 1 ? "file" : "files")} · {FluentCleaner.Models.ScanResult.FormatBytes(TotalBytes)} · PID {ProcessId}";
