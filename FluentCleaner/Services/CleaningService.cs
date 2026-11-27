@@ -1,4 +1,4 @@
-using FluentCleaner.Models;
+﻿using FluentCleaner.Models;
 using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 using System.IO.Enumeration;
@@ -58,16 +58,28 @@ public class CleaningService
                 {
                     if (!seen.Add(file)) continue;
 
-                    // Skip files that are truly inaccessible (hard lock / no permissions).
+                    // Probe deletability; track hard-locked files separately so File Locksmith can surface them.
                     var size = TryGetDeletableSize(file);
+
                     if (size < 0 && entry.IsCompactionOnly && File.Exists(file))
                     {
                         try { size = new FileInfo(file).Length; }
                         catch { size = -1; }
                     }
-                    if (size < 0) continue;
+                    if (size < 0)
+                    {
+                        if (File.Exists(file))
+                        {
+                            long lockedSize = 0;
+                            try { lockedSize = new FileInfo(file).Length; } catch { }
+                            result.LockedFiles.Add((file, lockedSize));
+                            result.LockedBytes += lockedSize;
+                        }
+                        continue;
+                    }
 
                     result.FilesToDelete.Add(file);
+                    result.FileSizes[file] = size;
                     result.TotalBytes += size;
                 }
             }
@@ -579,7 +591,7 @@ public class CleaningService
        shouldn't be able to touch them. Add a line to protect more. */
     private static readonly string[] ProtectedSegments =
     {
-        // browser extension databases (1Password, Bitwarden, uBlock filter lists…);
+        // browser extension databases (1Password, Bitwarden, uBlock filter listsâ€¦);
         // normal site storage ("https_...") stays cleanable, only "chrome-extension_" is off-limits
         @"\IndexedDB\chrome-extension_",
     };
@@ -588,6 +600,8 @@ public class CleaningService
     public static IReadOnlyList<string> ProtectedPaths => ProtectedSegments;
 
     // True when the path sits under one of the protected segments
+    public static bool IsProtectedPath(string path) => IsProtected(path);
+
     private static bool IsProtected(string path) =>
         ProtectedSegments.Any(s => path.Contains(s, StringComparison.OrdinalIgnoreCase));
 
@@ -635,7 +649,7 @@ public class CleaningService
        this is purely a string-prefix transform. */
     private sealed class PrefixedProgress(string prefix, IProgress<string> inner) : IProgress<string>
     {
-        public void Report(string path) => inner.Report($"{prefix}  ›  {path}");
+        public void Report(string path) => inner.Report($"{prefix}  â€º  {path}");
     }
 
     // --- P/Invoke -------------------------------------------------
