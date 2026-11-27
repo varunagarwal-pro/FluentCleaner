@@ -69,10 +69,19 @@ public partial class CleanerPageViewModel : ObservableObject
     [ObservableProperty] public partial long DevAiBytes    { get; set; }
     [ObservableProperty] public partial long AppsBytes     { get; set; }
 
-    // Real system drive telemetry (System.IO.DriveInfo)
-    [ObservableProperty] public partial string SystemDriveLabel       { get; set; } = "System Drive";
-    [ObservableProperty] public partial string SystemDriveUsageText   { get; set; } = "";
-    [ObservableProperty] public partial double SystemDriveUsedPercent { get; set; }
+    // Real system drive telemetry (System.IO.DriveInfo) + Projected reclaim preview
+    private long _driveFreeBytes;
+    private long _driveTotalBytes;
+
+    [ObservableProperty] public partial string SystemDriveLabel                { get; set; } = "System Drive";
+    [ObservableProperty] public partial string SystemDriveUsageText            { get; set; } = "";
+    [ObservableProperty] public partial double SystemDriveUsedPercent          { get; set; }
+    [ObservableProperty] public partial double SystemDriveProjectedUsedPercent { get; set; }
+
+    public string SystemDriveDisplayText =>
+        TotalBytesScanned > 0 && _driveTotalBytes > 0
+            ? $"{ScanResult.FormatBytes(_driveFreeBytes)} → {ScanResult.FormatBytes(Math.Min(_driveTotalBytes, _driveFreeBytes + TotalBytesScanned))} free"
+            : SystemDriveUsageText;
 
     // Dismissible action feedback InfoBar (Clean outcome / Undo Exclusion)
     [ObservableProperty] public partial bool            BannerOpen        { get; set; }
@@ -220,12 +229,26 @@ public partial class CleanerPageViewModel : ObservableObject
             var drive = new DriveInfo(root);
             if (!drive.IsReady || drive.TotalSize <= 0) return;
 
+            _driveFreeBytes        = drive.AvailableFreeSpace;
+            _driveTotalBytes       = drive.TotalSize;
             long used = drive.TotalSize - drive.AvailableFreeSpace;
             SystemDriveLabel       = $"Local Disk ({root.TrimEnd('\\')})";
             SystemDriveUsageText   = $"{ScanResult.FormatBytes(drive.AvailableFreeSpace)} free of {ScanResult.FormatBytes(drive.TotalSize)}";
             SystemDriveUsedPercent = Math.Clamp(used * 100.0 / drive.TotalSize, 0, 100);
+            UpdateProjectedDriveMetrics();
         }
         catch { }
+    }
+
+    private void UpdateProjectedDriveMetrics()
+    {
+        if (_driveTotalBytes > 0)
+        {
+            long projectedFree = Math.Min(_driveTotalBytes, _driveFreeBytes + TotalBytesScanned);
+            long projectedUsed = Math.Max(0, _driveTotalBytes - projectedFree);
+            SystemDriveProjectedUsedPercent = Math.Clamp(projectedUsed * 100.0 / _driveTotalBytes, 0, 100);
+        }
+        OnPropertyChanged(nameof(SystemDriveDisplayText));
     }
 
     public void ShowBanner(InfoBarSeverity severity, string title, string message, string? undoExclusionRule = null, bool offerElevation = false)
@@ -412,6 +435,7 @@ public partial class CleanerPageViewModel : ObservableObject
         OnPropertyChanged(nameof(HeroSizeDisplay));
         OnPropertyChanged(nameof(HeroSubtitle));
         OnPropertyChanged(nameof(CleanButtonLabel));
+        UpdateProjectedDriveMetrics();
     }
 
     partial void OnIsBusyChanged(bool value)
@@ -1000,10 +1024,11 @@ public partial class CleanerPageViewModel : ObservableObject
             };
 
             var groupEntries = group.Select(x => x.Entry).ToList();
-            if (catVm.AppIconBitmap is null && UiDispatcher is { } dq)
+            if (UiDispatcher is { } dq)
             {
                 string resolvedCatName = group.Key.Name;
-                _ = AppIconResolverService.TryResolveDynamicAppIconAsync(
+                // Always prefer real installed Windows .exe/MSIX app logo or native Windows 11 System32 icon
+                _ = AppIconResolverService.TryResolveNativeIconAsync(
                     resolvedCatName,
                     groupEntries,
                     dq,
@@ -1180,8 +1205,7 @@ public partial class CleanerPageViewModel : ObservableObject
     {
         foreach (var line in ResultLines)
         {
-            if (string.Equals(line.CategoryName, categoryName, StringComparison.OrdinalIgnoreCase)
-                && line.AppIconBitmap is null)
+            if (string.Equals(line.CategoryName, categoryName, StringComparison.OrdinalIgnoreCase))
             {
                 line.AppIconBitmap = img;
             }
