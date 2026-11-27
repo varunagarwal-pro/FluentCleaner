@@ -7,7 +7,11 @@
     CloseButtonText="Close"
     DefaultButton="Close">
 
-    <Grid Width="580" MaxHeight="520" RowSpacing="12">
+    <ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxWidth">700</x:Double>
+    </ContentDialog.Resources>
+
+    <Grid Width="620" MaxHeight="520" RowSpacing="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
