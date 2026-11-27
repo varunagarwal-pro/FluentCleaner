@@ -296,7 +296,7 @@
                             Click="UnlockLockedFiles_Click"
                             Style="{StaticResource DarkSecondaryButtonStyle}"
                             Visibility="{x:Bind ViewModel.HasLockedFiles, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
-                            ToolTipService.ToolTip="Inspect locking processes (File Locksmith) or schedule deletion on reboot" />
+                            ToolTipService.ToolTip="Unlock locked files or schedule deletion on reboot" />
                     <Button Content="Restart as administrator"
                             Click="RestartElevated_Click"
                             Style="{StaticResource ElectricAccentButtonStyle}"
