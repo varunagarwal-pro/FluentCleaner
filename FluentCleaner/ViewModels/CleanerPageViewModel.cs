@@ -283,7 +283,7 @@ public partial class CleanerPageViewModel : ObservableObject
             }
             RefreshFooterMetadata();
             RefreshSystemDriveInfo();
-            StatusText = $"File Locksmith freed an additional {ScanResult.FormatBytes(freedBytes)} ({removed:N0} files).";
+            StatusText = $"Unlocked and freed an additional {ScanResult.FormatBytes(freedBytes)} ({removed:N0} files).";
         }
     }
 
