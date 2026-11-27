@@ -29,7 +29,10 @@
         <!-- Loading / feedback strip -->
         <ProgressBar x:Name="LoadingBar"
                      Grid.Row="1"
-                     IsIndeterminate="True"
+                     Minimum="0"
+                     Maximum="100"
+                     Value="0"
+                     IsIndeterminate="False"
                      Visibility="Visible" />
 
         <InfoBar x:Name="ActionInfoBar"
