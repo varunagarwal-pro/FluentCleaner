@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FluentCleaner.Core\FluentCleaner.Core.csproj" />
     <Compile Include="..\FluentCleaner\Services\CategoryStylingResolver.cs" Link="Services\CategoryStylingResolver.cs" />
+    <Compile Include="..\FluentCleaner\Services\ScanProgressEstimator.cs" Link="Services\ScanProgressEstimator.cs" />
   </ItemGroup>
 
 </Project>
