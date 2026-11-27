@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace FluentCleaner.Services;
 
@@ -41,9 +43,9 @@ public sealed record CleanOutcome(int RemovedCount, long FreedBytes, List<Locked
 
 /// <summary>
 /// PowerToys File Locksmith-style locked-file analyzer and unlocker.
-/// Uses native Windows Restart Manager (rstrtmgr.dll) with binary-split batch attribution
-/// and MoveFileExW (MOVEFILE_DELAY_UNTIL_REBOOT).
-/// 100% NativeAOT-safe, symlink-safe, PID-reuse-safe, and self-termination-safe.
+/// Uses native ntdll.dll (NtQuerySystemInformation + NtQueryObject) with ObjectTypeIndex pre-filtering,
+/// QueryDosDeviceW kernel-path mapping, stall-safe name queries, and parallel per-PID handle + module workers.
+/// 100% 64-bit, NativeAOT-safe, symlink-safe, PID-reuse-safe, and self-termination-safe.
 /// </summary>
 public static class FileLocksmithService
 {
@@ -58,8 +60,8 @@ public static class FileLocksmithService
     };
 
     /// <summary>
-    /// Identifies all processes currently holding locks on the supplied file paths using Windows Restart Manager.
-    /// Groups by directory and executes Restart Manager batches in parallel for high throughput.
+    /// Identifies all processes currently holding locks on the supplied file paths using native
+    /// NtQuerySystemInformation handle enumeration and process module inspection across parallel workers.
     /// </summary>
     public static Task<(List<LockingProcessGroup> Processes, List<LockedFileItem> UnattributedFiles)> FindLockingProcessesAsync(
         IReadOnlyList<LockedFileItem> lockedFiles,
@@ -77,10 +79,6 @@ public static class FileLocksmithService
         IProgress<(int ProcessedFiles, int TotalFiles)>? progress,
         CancellationToken token)
     {
-        var byPid = new ConcurrentDictionary<int, (string ProcName, string DisplayName, bool IsProtected, ConcurrentBag<LockedFileItem> Files)>();
-        var unattributed = new ConcurrentBag<LockedFileItem>();
-        var pidNameCache = new ConcurrentDictionary<int, string>();
-
         var deduped = lockedFiles
             .AsParallel()
             .WithCancellation(token)
@@ -95,38 +93,138 @@ public static class FileLocksmithService
             return (new List<LockingProcessGroup>(), new List<LockedFileItem>());
         }
 
-        // Group by parent directory first: files in the same folder are usually held by the same process,
-        // avoiding O(N log N) Restart Manager binary splits.
-        const int batchSize = 128;
-        var batches = new List<List<LockedFileItem>>();
-        foreach (var dirGroup in deduped.GroupBy(f => Path.GetDirectoryName(f.FilePath) ?? "", StringComparer.OrdinalIgnoreCase))
+        progress?.Report((0, total));
+
+        // 1. Build O(1) kernel-path -> LockedFileItem lookup via cached QueryDosDeviceW drive mappings.
+        var driveMap = BuildDriveToDeviceMap();
+        var kernelLookup = BuildKernelPathLookup(deduped, driveMap);
+        if (kernelLookup.Count == 0)
         {
-            var list = dirGroup.ToList();
-            for (int i = 0; i < list.Count; i += batchSize)
-                batches.Add(list.GetRange(i, Math.Min(batchSize, list.Count - i)));
+            progress?.Report((total, total));
+            return (new List<LockingProcessGroup>(), deduped);
         }
 
-        int processed = 0;
-        long lastReportTick = 0;
-
-        void ReportLeaf(int count)
+        // 2. Open one temporary disk handle so we can identify the exact kernel File ObjectTypeIndex
+        //    in O(1) from the handle snapshot, skipping 95%+ of non-File handles without DuplicateHandle.
+        ushort? fileTypeIndex = null;
+        SafeFileHandle? probeHandle = null;
+        try
         {
-            int done = Interlocked.Add(ref processed, count);
-            if (progress is null) return;
-            long now = Environment.TickCount64;
-            long prev = Interlocked.Read(ref lastReportTick);
-            if (done >= total || (now - prev >= 80 && Interlocked.CompareExchange(ref lastReportTick, now, prev) == prev))
-                progress.Report((Math.Min(done, total), total));
+            probeHandle = File.OpenHandle(deduped[0].FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        }
+        catch { }
+
+        byte[]? handleBuffer = null;
+        try
+        {
+            handleBuffer = QuerySystemInformationLoop(SystemExtendedHandleInformation);
+        }
+        finally
+        {
+            // Keep probeHandle open until after we read its ObjectTypeIndex below, or dispose if query failed.
+            if (handleBuffer is null)
+                probeHandle?.Dispose();
         }
 
-        // Cap at 8 concurrent Restart Manager sessions (Windows limit is 64 per user session).
-        int rmParallelism = Math.Clamp(Environment.ProcessorCount, 4, 8);
-        Parallel.ForEach(
-            batches,
-            new ParallelOptions { MaxDegreeOfParallelism = rmParallelism, CancellationToken = token },
-            batch => AttributeBatchRecursive(batch, byPid, unattributed, pidNameCache, ReportLeaf, token));
+        var byPid = new ConcurrentDictionary<int, (string ProcName, string DisplayName, bool IsProtected, ConcurrentBag<LockedFileItem> Files)>();
+        var attributedPaths = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+
+        if (handleBuffer is not null && handleBuffer.Length >= 16)
+        {
+            ulong rawCount = MemoryMarshal.Read<ulong>(handleBuffer.AsSpan(0, 8));
+            int entrySize = Marshal.SizeOf<SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>();
+            int maxEntries = Math.Min((int)Math.Min(rawCount, int.MaxValue), (handleBuffer.Length - 16) / entrySize);
+            var entries = MemoryMarshal.Cast<byte, SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX>(
+                handleBuffer.AsSpan(16, maxEntries * entrySize));
+
+            if (probeHandle is not null)
+            {
+                nuint selfPid = (nuint)Environment.ProcessId;
+                nuint probeVal = (nuint)probeHandle.DangerousGetHandle();
+                for (int i = 0; i < entries.Length; i++)
+                {
+                    if (entries[i].UniqueProcessId == selfPid && entries[i].HandleValue == probeVal)
+                    {
+                        fileTypeIndex = entries[i].ObjectTypeIndex;
+                        break;
+                    }
+                }
+                probeHandle.Dispose();
+                probeHandle = null;
+            }
+
+            // Group candidate handles by PID (skipping PID <= 4 and self, and pre-filtering by File ObjectTypeIndex)
+            var handlesByPid = new Dictionary<int, List<nuint>>(256);
+            int selfProcessId = Environment.ProcessId;
+            for (int i = 0; i < entries.Length; i++)
+            {
+                ref readonly var e = ref entries[i];
+                if (fileTypeIndex.HasValue && e.ObjectTypeIndex != fileTypeIndex.Value)
+                    continue;
+
+                ulong pid64 = e.UniqueProcessId;
+                if (pid64 <= 4 || pid64 > int.MaxValue) continue;
+                int pid = (int)pid64;
+                if (pid == selfProcessId) continue;
+
+                if (!handlesByPid.TryGetValue(pid, out var list))
+                {
+                    list = new List<nuint>(32);
+                    handlesByPid[pid] = list;
+                }
+                list.Add(e.HandleValue);
+            }
+
+            // 3. Scan processes in parallel across CPU cores with stall-safe NtQueryObject workers.
+            var pidGroups = handlesByPid.ToList();
+            int totalPids = Math.Max(1, pidGroups.Count);
+            int donePids = 0;
+            long lastReportTick = 0;
+            int maxParallel = Math.Clamp(Environment.ProcessorCount, 4, 16);
+
+            Parallel.ForEach(
+                pidGroups,
+                new ParallelOptions { MaxDegreeOfParallelism = maxParallel, CancellationToken = token },
+                () => new PidScanScratch(),
+                (pidGroup, _, scratch) =>
+                {
+                    ScanPidHandlesAndModules(
+                        pidGroup.Key,
+                        pidGroup.Value,
+                        fileTypeIndex.HasValue,
+                        kernelLookup,
+                        driveMap,
+                        byPid,
+                        attributedPaths,
+                        scratch,
+                        token);
+
+                    int done = Interlocked.Increment(ref donePids);
+                    if (progress is not null)
+                    {
+                        long now = Environment.TickCount64;
+                        long prev = Interlocked.Read(ref lastReportTick);
+                        if (done >= totalPids || (now - prev >= 60 && Interlocked.CompareExchange(ref lastReportTick, now, prev) == prev))
+                        {
+                            int approxFiles = Math.Min(total, (int)((long)done * total / totalPids));
+                            progress.Report((approxFiles, total));
+                        }
+                    }
+
+                    return scratch;
+                },
+                scratch => scratch.Dispose());
+        }
+        else
+        {
+            probeHandle?.Dispose();
+        }
 
         progress?.Report((total, total));
+
+        var unattributed = deduped
+            .Where(f => !attributedPaths.ContainsKey(f.FilePath))
+            .ToList();
 
         var groups = byPid
             .Select(kvp => new LockingProcessGroup(
@@ -141,43 +239,185 @@ public static class FileLocksmithService
             .ThenByDescending(g => g.TotalBytes)
             .ToList();
 
-        return (groups, unattributed.ToList());
+        return (groups, unattributed);
     }
 
-    private static void AttributeBatchRecursive(
-        List<LockedFileItem> batch,
+    internal static Dictionary<string, string> BuildDriveToDeviceMap()
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var sb = new char[512];
+        foreach (var drive in Environment.GetLogicalDrives())
+        {
+            if (drive.Length < 2) continue;
+            string dosDrive = drive[..2]; // e.g. "C:"
+            uint len = QueryDosDeviceW(dosDrive, sb, (uint)sb.Length);
+            if (len > 0)
+            {
+                int nullIdx = Array.IndexOf(sb, '\0');
+                string device = nullIdx > 0 ? new string(sb, 0, nullIdx) : new string(sb, 0, (int)len).TrimEnd('\0');
+                if (!string.IsNullOrEmpty(device))
+                    map[dosDrive] = device;
+            }
+        }
+        return map;
+    }
+
+    internal static string? TryConvertToKernelPath(string dosPath, IReadOnlyDictionary<string, string> driveMap)
+    {
+        if (string.IsNullOrWhiteSpace(dosPath)) return null;
+        if (dosPath.Length >= 3 && dosPath[1] == ':' && dosPath[2] == '\\')
+        {
+            string dosDrive = dosPath[..2];
+            if (driveMap.TryGetValue(dosDrive, out var device))
+                return string.Concat(device, dosPath.AsSpan(2));
+        }
+        return null;
+    }
+
+    internal static Dictionary<string, LockedFileItem> BuildKernelPathLookup(
+        IEnumerable<LockedFileItem> files,
+        IReadOnlyDictionary<string, string> driveMap)
+    {
+        var lookup = new Dictionary<string, LockedFileItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in files)
+        {
+            string? kpath = TryConvertToKernelPath(item.FilePath, driveMap);
+            if (string.IsNullOrEmpty(kpath))
+                kpath = QueryKernelNameForPath(item.FilePath);
+
+            if (!string.IsNullOrEmpty(kpath))
+                lookup.TryAdd(kpath, item);
+        }
+        return lookup;
+    }
+
+    private static void ScanPidHandlesAndModules(
+        int pid,
+        List<nuint> handleValues,
+        bool typePreFiltered,
+        Dictionary<string, LockedFileItem> kernelLookup,
+        Dictionary<string, string> driveMap,
         ConcurrentDictionary<int, (string ProcName, string DisplayName, bool IsProtected, ConcurrentBag<LockedFileItem> Files)> byPid,
-        ConcurrentBag<LockedFileItem> unattributed,
-        ConcurrentDictionary<int, string> pidNameCache,
-        Action<int> reportLeaf,
+        ConcurrentDictionary<string, byte> attributedPaths,
+        PidScanScratch scratch,
         CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if (batch.Count == 0) return;
 
-        var pids = QueryRestartManagerBatch(batch.Select(b => b.FilePath).ToArray(), pidNameCache);
-        if (pids.Count == 0)
+        IntPtr hProc = OpenProcess(PROCESS_DUP_HANDLE | PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
+        if (hProc == IntPtr.Zero)
         {
-            foreach (var item in batch)
-                unattributed.Add(item);
-            reportLeaf(batch.Count);
-            return;
+            hProc = OpenProcess(PROCESS_DUP_HANDLE, false, (uint)pid);
+            if (hProc == IntPtr.Zero) return;
         }
 
-        // Single process owns the entire batch OR we reached a single file -> exact attribution!
-        if (pids.Count == 1 || batch.Count == 1)
-        {
-            foreach (var item in batch)
-                foreach (var p in pids)
-                    AddLockedItem(byPid, p.Pid, p.ProcName, p.DisplayName, item);
-            reportLeaf(batch.Count);
-            return;
-        }
+        string? procName = null;
+        string? displayName = null;
+        IntPtr currentProc = GetCurrentProcess();
 
-        // Multiple processes in this batch -> binary-split so per-process counts/MB stay 100% accurate
-        int mid = batch.Count / 2;
-        AttributeBatchRecursive(batch.GetRange(0, mid), byPid, unattributed, pidNameCache, reportLeaf, token);
-        AttributeBatchRecursive(batch.GetRange(mid, batch.Count - mid), byPid, unattributed, pidNameCache, reportLeaf, token);
+        try
+        {
+            foreach (nuint hVal in handleValues)
+            {
+                if (token.IsCancellationRequested) break;
+
+                if (!DuplicateHandle(hProc, (IntPtr)hVal, currentProc, out IntPtr dup, 0, false, DUPLICATE_SAME_ACCESS))
+                    continue;
+
+                if (!typePreFiltered)
+                {
+                    if (!IsFileObjectType(dup, scratch.TypeBuffer))
+                    {
+                        CloseHandle(dup);
+                        continue;
+                    }
+                }
+
+                // Ownership of `dup` is transferred to StallSafeFileNameWorker (always closed by worker or on abandon).
+                string? kernelName = scratch.NameWorker.QueryKernelFileName(dup);
+                if (!string.IsNullOrEmpty(kernelName) && kernelLookup.TryGetValue(kernelName, out var item))
+                {
+                    EnsureProcessNames(pid, ref procName, ref displayName);
+                    AddLockedItem(byPid, pid, procName, displayName, item);
+                    attributedPaths.TryAdd(item.FilePath, 0);
+                }
+            }
+
+            // Also inspect loaded modules (DLL/EXE) for memory-mapped locks (matches PowerToys FileLocksmith.cpp).
+            ScanProcessModules(pid, kernelLookup, driveMap, byPid, attributedPaths, ref procName, ref displayName);
+        }
+        finally
+        {
+            CloseHandle(hProc);
+        }
+    }
+
+    private static void ScanProcessModules(
+        int pid,
+        Dictionary<string, LockedFileItem> kernelLookup,
+        Dictionary<string, string> driveMap,
+        ConcurrentDictionary<int, (string ProcName, string DisplayName, bool IsProtected, ConcurrentBag<LockedFileItem> Files)> byPid,
+        ConcurrentDictionary<string, byte> attributedPaths,
+        ref string? procName,
+        ref string? displayName)
+    {
+        IntPtr hProcMod = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, (uint)pid);
+        if (hProcMod == IntPtr.Zero) return;
+
+        try
+        {
+            var modules = new IntPtr[512];
+            uint cb = (uint)(modules.Length * IntPtr.Size);
+            if (!EnumProcessModulesEx(hProcMod, modules, cb, out uint needed, LIST_MODULES_ALL))
+                return;
+
+            if (needed > cb)
+            {
+                modules = new IntPtr[needed / (uint)IntPtr.Size];
+                if (!EnumProcessModulesEx(hProcMod, modules, needed, out needed, LIST_MODULES_ALL))
+                    return;
+            }
+
+            int count = (int)(needed / (uint)IntPtr.Size);
+            var pathBuf = new char[1024];
+            for (int i = 0; i < count; i++)
+            {
+                uint len = GetModuleFileNameExW(hProcMod, modules[i], pathBuf, (uint)pathBuf.Length);
+                if (len == 0) continue;
+
+                string modPath = new string(pathBuf, 0, (int)len);
+                string? kernelName = TryConvertToKernelPath(modPath, driveMap);
+                if (!string.IsNullOrEmpty(kernelName) && kernelLookup.TryGetValue(kernelName, out var item))
+                {
+                    EnsureProcessNames(pid, ref procName, ref displayName);
+                    AddLockedItem(byPid, pid, procName, displayName, item);
+                    attributedPaths.TryAdd(item.FilePath, 0);
+                }
+            }
+        }
+        catch { }
+        finally
+        {
+            CloseHandle(hProcMod);
+        }
+    }
+
+    private static void EnsureProcessNames(int pid, ref string? procName, ref string? displayName)
+    {
+        if (procName is not null && displayName is not null) return;
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            procName = p.ProcessName;
+            string? friendly = null;
+            try { friendly = p.MainModule?.FileVersionInfo.FileDescription; } catch { }
+            displayName = string.IsNullOrWhiteSpace(friendly) ? procName : friendly.Trim();
+        }
+        catch
+        {
+            procName ??= $"PID {pid}";
+            displayName ??= procName;
+        }
     }
 
     private static void AddLockedItem(
@@ -330,135 +570,281 @@ public static class FileLocksmithService
         return scheduled;
     }
 
-    // --- Windows Restart Manager P/Invoke (rstrtmgr.dll) ----------------------
+    // --- Native Handle & Module Enumeration P/Invoke (ntdll, kernel32, psapi) ---
 
-    private const int ERROR_MORE_DATA = 234;
     private const uint MOVEFILE_DELAY_UNTIL_REBOOT = 0x00000004;
+    private const int SystemExtendedHandleInformation = 64;
+    private const int ObjectNameInformation = 1;
+    private const int ObjectTypeInformation = 2;
+    private const int STATUS_INFO_LENGTH_MISMATCH = unchecked((int)0xC0000004);
+    private const uint PROCESS_DUP_HANDLE = 0x0040;
+    private const uint PROCESS_QUERY_INFORMATION = 0x0400;
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    private const uint PROCESS_VM_READ = 0x0010;
+    private const uint DUPLICATE_SAME_ACCESS = 0x00000002;
+    private const uint FILE_TYPE_DISK = 0x0001;
+    private const uint FILE_SHARE_READ = 0x00000001;
+    private const uint FILE_SHARE_WRITE = 0x00000002;
+    private const uint FILE_SHARE_DELETE = 0x00000004;
+    private const uint OPEN_EXISTING = 3;
+    private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+    private const uint LIST_MODULES_ALL = 0x03;
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct RM_UNIQUE_PROCESS
+    private struct SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX
     {
-        public int dwProcessId;
-        public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime;
+        public IntPtr Object;
+        public nuint UniqueProcessId;
+        public nuint HandleValue;
+        public uint GrantedAccess;
+        public ushort CreatorBackTraceIndex;
+        public ushort ObjectTypeIndex;
+        public uint HandleAttributes;
+        public uint Reserved;
     }
 
-    private enum RM_APP_TYPE
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UNICODE_STRING
     {
-        RmUnknownApp  = 0,
-        RmMainWindow  = 1,
-        RmOtherWindow = 2,
-        RmService     = 3,
-        RmExplorer    = 4,
-        RmConsole     = 5,
-        RmCritical    = 1000
+        public ushort Length;
+        public ushort MaximumLength;
+        public IntPtr Buffer;
     }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct RM_PROCESS_INFO
-    {
-        public RM_UNIQUE_PROCESS Process;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
-        public string strAppName;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
-        public string strServiceShortName;
-        public RM_APP_TYPE ApplicationType;
-        public uint AppStatus;
-        public uint TSSessionId;
-        [MarshalAs(UnmanagedType.Bool)]
-        public bool bRestartable;
-    }
+    [DllImport("ntdll.dll")]
+    private static extern int NtQuerySystemInformation(
+        int SystemInformationClass,
+        byte[] SystemInformation,
+        int SystemInformationLength,
+        out int ReturnLength);
 
-    // AUDIT FIX #1: strSessionKey is an [Out] WCHAR[CCH_RM_SESSION_KEY+1] buffer (never pass immutable C# string!)
-    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    private static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, [Out] char[] strSessionKey);
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryObject(
+        IntPtr Handle,
+        int ObjectInformationClass,
+        byte[] ObjectInformation,
+        int ObjectInformationLength,
+        out int ReturnLength);
 
-    [DllImport("rstrtmgr.dll")]
-    private static extern int RmEndSession(uint pSessionHandle);
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, uint dwProcessId);
 
-    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    private static extern int RmRegisterResources(
-        uint pSessionHandle,
-        uint nFiles,
-        string[] rgsFileNames,
-        uint nApplications,
-        IntPtr rgApplications,
-        uint nServices,
-        string[]? rgsServiceNames);
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
 
-    [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
-    private static extern int RmGetList(
-        uint dwSessionHandle,
-        out uint pnProcInfoNeeded,
-        ref uint pnProcInfo,
-        [In, Out] RM_PROCESS_INFO[]? rgAffectedApps,
-        ref uint lpdwRebootReasons);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DuplicateHandle(
+        IntPtr hSourceProcessHandle,
+        IntPtr hSourceHandle,
+        IntPtr hTargetProcessHandle,
+        out IntPtr lpTargetHandle,
+        uint dwDesiredAccess,
+        [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle,
+        uint dwOptions);
+
+    [DllImport("kernel32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetFileType(IntPtr hFile);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint QueryDosDeviceW(string lpDeviceName, [Out] char[] lpTargetPath, uint ucchMax);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateFileW(
+        string lpFileName,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        IntPtr hTemplateFile);
+
+    [DllImport("psapi.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumProcessModulesEx(
+        IntPtr hProcess,
+        [Out] IntPtr[] lphModule,
+        uint cb,
+        out uint lpcbNeeded,
+        uint dwFilterFlag);
+
+    [DllImport("psapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetModuleFileNameExW(
+        IntPtr hProcess,
+        IntPtr hModule,
+        [Out] char[] lpFilename,
+        uint nSize);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool MoveFileExW(string lpExistingFileName, string? lpNewFileName, uint dwFlags);
 
-    private static List<(int Pid, string ProcName, string DisplayName)> QueryRestartManagerBatch(
-        string[] filePaths,
-        ConcurrentDictionary<int, string> pidNameCache)
+    private static byte[]? QuerySystemInformationLoop(int infoClass)
     {
-        var results = new List<(int Pid, string ProcName, string DisplayName)>();
-        if (filePaths.Length == 0) return results;
+        int size = 4 * 1024 * 1024;
+        const int maxSize = 256 * 1024 * 1024;
 
-        var sessionKeyBuffer = new char[33]; // CCH_RM_SESSION_KEY (32) + null terminator
-        if (RmStartSession(out uint handle, 0, sessionKeyBuffer) != 0)
-            return results;
+        while (size <= maxSize)
+        {
+            var buf = new byte[size];
+            int status = NtQuerySystemInformation(infoClass, buf, size, out int needed);
+            if (status == STATUS_INFO_LENGTH_MISMATCH)
+            {
+                size = needed > size ? needed + (1024 * 1024) : size * 2;
+                continue;
+            }
+            return status >= 0 ? buf : null;
+        }
+        return null;
+    }
+
+    private static string? QueryKernelNameForPath(string path)
+    {
+        IntPtr h = CreateFileW(path, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, IntPtr.Zero);
+        if (h == IntPtr.Zero || h == new IntPtr(-1))
+            return null;
 
         try
         {
-            if (RmRegisterResources(handle, (uint)filePaths.Length, filePaths, 0, IntPtr.Zero, 0, null) != 0)
-                return results;
-
-            uint pnProcInfoNeeded = 0;
-            uint pnProcInfo = 0;
-            uint rebootReasons = 0;
-
-            int res = RmGetList(handle, out pnProcInfoNeeded, ref pnProcInfo, null, ref rebootReasons);
-            if (res == ERROR_MORE_DATA && pnProcInfoNeeded > 0)
+            if (GetFileType(h) != FILE_TYPE_DISK) return null;
+            var buf = new byte[64 * 1024];
+            if (NtQueryObject(h, ObjectNameInformation, buf, buf.Length, out _) >= 0)
             {
-                var infos = new RM_PROCESS_INFO[pnProcInfoNeeded];
-                pnProcInfo = pnProcInfoNeeded;
-                res = RmGetList(handle, out pnProcInfoNeeded, ref pnProcInfo, infos, ref rebootReasons);
-                if (res == 0)
-                {
-                    var seen = new HashSet<int>();
-                    for (int i = 0; i < pnProcInfo; i++)
-                    {
-                        int pid = infos[i].Process.dwProcessId;
-                        if (pid <= 0 || !seen.Add(pid)) continue;
-
-                        string procName = infos[i].strServiceShortName;
-                        if (string.IsNullOrWhiteSpace(procName))
-                        {
-                            string fallbackName = infos[i].strAppName;
-                            procName = pidNameCache.GetOrAdd(pid, id =>
-                            {
-                                try
-                                {
-                                    using var p = Process.GetProcessById(id);
-                                    return p.ProcessName;
-                                }
-                                catch
-                                {
-                                    return fallbackName;
-                                }
-                            });
-                        }
-
-                        var display = string.IsNullOrWhiteSpace(infos[i].strAppName) ? procName : infos[i].strAppName;
-                        results.Add((pid, procName, display));
-                    }
-                }
+                var ustr = MemoryMarshal.Read<UNICODE_STRING>(buf);
+                if (ustr.Length > 0 && ustr.Buffer != IntPtr.Zero)
+                    return Marshal.PtrToStringUni(ustr.Buffer, ustr.Length / 2);
             }
+            return null;
         }
         finally
         {
-            RmEndSession(handle);
+            CloseHandle(h);
+        }
+    }
+
+    private static bool IsFileObjectType(IntPtr handle, byte[] typeBuffer)
+    {
+        if (NtQueryObject(handle, ObjectTypeInformation, typeBuffer, typeBuffer.Length, out _) < 0)
+            return false;
+
+        var ustr = MemoryMarshal.Read<UNICODE_STRING>(typeBuffer);
+        if (ustr.Length != 8 || ustr.Buffer == IntPtr.Zero) // "File" is 4 UTF-16 chars = 8 bytes
+            return false;
+
+        string? name = Marshal.PtrToStringUni(ustr.Buffer, 4);
+        return string.Equals(name, "File", StringComparison.Ordinal);
+    }
+
+    private sealed class PidScanScratch : IDisposable
+    {
+        public readonly byte[] TypeBuffer = new byte[4096];
+        public readonly StallSafeFileNameWorker NameWorker = new(stallTimeoutMs: 40);
+
+        public void Dispose() => NameWorker.Dispose();
+    }
+
+    /// <summary>
+    /// Dedicated worker thread per parallel scanner that executes GetFileType + NtQueryObject(ObjectNameInformation)
+    /// with a stall timeout, abandoning hung pipe/driver queries without blocking the scan (PowerToys FileNameQueryWorker).
+    /// </summary>
+    private sealed class StallSafeFileNameWorker : IDisposable
+    {
+        private sealed class WorkerState
+        {
+            public readonly AutoResetEvent RequestEvent = new(false);
+            public readonly AutoResetEvent DoneEvent = new(false);
+            public readonly byte[] Buffer = new byte[64 * 1024];
+            public IntPtr FileHandle;
+            public int Abandoned; // 0 = active, 1 = abandoned
+            public string? Result;
         }
 
-        return results;
+        private readonly int _timeoutMs;
+        private WorkerState? _state;
+
+        public StallSafeFileNameWorker(int stallTimeoutMs = 40)
+        {
+            _timeoutMs = stallTimeoutMs;
+        }
+
+        public string? QueryKernelFileName(IntPtr handle)
+        {
+            if (_state is null)
+            {
+                _state = new WorkerState();
+                var stateRef = _state;
+                var thread = new Thread(() => RunWorker(stateRef))
+                {
+                    IsBackground = true,
+                    Name = "LocksmithNameQueryWorker"
+                };
+                thread.Start();
+            }
+
+            var st = _state;
+            st.Result = null;
+            st.FileHandle = handle;
+            st.RequestEvent.Set();
+
+            if (!st.DoneEvent.WaitOne(_timeoutMs))
+            {
+                // Query stalled on a synchronous pipe/driver handle: abandon this worker and spin a fresh one next time.
+                Interlocked.Exchange(ref st.Abandoned, 1);
+                _state = null;
+                return null;
+            }
+
+            CloseHandle(handle);
+            return st.Result;
+        }
+
+        private static void RunWorker(WorkerState st)
+        {
+            while (true)
+            {
+                st.RequestEvent.WaitOne();
+                IntPtr h = st.FileHandle;
+                if (h == IntPtr.Zero)
+                    break;
+
+                string? res = null;
+                try
+                {
+                    if (GetFileType(h) == FILE_TYPE_DISK &&
+                        NtQueryObject(h, ObjectNameInformation, st.Buffer, st.Buffer.Length, out _) >= 0)
+                    {
+                        var ustr = MemoryMarshal.Read<UNICODE_STRING>(st.Buffer);
+                        if (ustr.Length > 0 && ustr.Buffer != IntPtr.Zero)
+                            res = Marshal.PtrToStringUni(ustr.Buffer, ustr.Length / 2);
+                    }
+                }
+                catch { }
+
+                if (Volatile.Read(ref st.Abandoned) != 0)
+                {
+                    CloseHandle(h);
+                    break;
+                }
+
+                st.Result = res;
+                st.DoneEvent.Set();
+            }
+
+            st.RequestEvent.Dispose();
+            st.DoneEvent.Dispose();
+        }
+
+        public void Dispose()
+        {
+            if (_state is not null)
+            {
+                _state.FileHandle = IntPtr.Zero;
+                _state.RequestEvent.Set();
+                _state = null;
+            }
+        }
     }
 }
