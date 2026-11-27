@@ -291,11 +291,17 @@
                         Visibility="{x:Bind ViewModel.CanUndoExclusion, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
             </InfoBar.ActionButton>
             <InfoBar.Content>
-                <Button Content="Restart as administrator"
-                        Click="RestartElevated_Click"
-                        Style="{StaticResource ElectricAccentButtonStyle}"
-                        Margin="0,0,0,10"
-                        Visibility="{x:Bind ViewModel.CanOfferElevation, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+                    <Button Content="{x:Bind ViewModel.UnlockFilesLabel, Mode=OneWay}"
+                            Click="UnlockLockedFiles_Click"
+                            Style="{StaticResource DarkSecondaryButtonStyle}"
+                            Visibility="{x:Bind ViewModel.HasLockedFiles, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}"
+                            ToolTipService.ToolTip="Inspect locking processes (File Locksmith) or schedule deletion on reboot" />
+                    <Button Content="Restart as administrator"
+                            Click="RestartElevated_Click"
+                            Style="{StaticResource ElectricAccentButtonStyle}"
+                            Visibility="{x:Bind ViewModel.CanOfferElevation, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+                </StackPanel>
             </InfoBar.Content>
         </InfoBar>
 

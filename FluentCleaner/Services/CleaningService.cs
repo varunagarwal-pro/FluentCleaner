@@ -19,8 +19,14 @@ public class CleaningService
     public Task<ScanResult> AnalyzeAsync(CleanerEntry entry, IProgress<string>? progress = null, CancellationToken token = default)
         => Task.Run(() => Analyze(entry, progress, token), token);
 
-    public Task<(int count, long bytes)> CleanAsync(ScanResult result, IProgress<string>? progress = null, CancellationToken token = default)
-        => Task.Run(() => Clean(result, progress, token), token);
+    public async Task<(int count, long bytes)> CleanAsync(ScanResult result, IProgress<string>? progress = null, CancellationToken token = default)
+    {
+        var outcome = await CleanDetailedAsync(result, progress, token);
+        return (outcome.RemovedCount, outcome.FreedBytes);
+    }
+
+    public Task<CleanOutcome> CleanDetailedAsync(ScanResult result, IProgress<string>? progress = null, CancellationToken token = default)
+        => Task.Run(() => CleanDetailed(result, progress, token), token);
 
     // --- Analyze --------------------------------------------------
 
@@ -200,10 +206,11 @@ public class CleaningService
     /* Deletes everything the Analyze phase queued up.
        Files that are in use or already gone get skipped silently;no point in spamming errors. 
      Also returns the count of successfully deleted items and the total bytes freed.*/
-    private (int count, long bytes) Clean(ScanResult result, IProgress<string>? progress, CancellationToken token = default)
+    private CleanOutcome CleanDetailed(ScanResult result, IProgress<string>? progress, CancellationToken token = default)
     {
         int count = 0;
         long bytes = 0;
+        var lockedFiles = new List<LockedFileItem>();
         bool shellRefreshNeeded = ShellNotification.ShouldNotify(result);
         bool entryRequestsTruncate = result.Entry.FileKeys.Any(fk => (fk.Flag & FileKeyFlag.Truncate) != 0);
         var registryExclusions = BuildRegistryExclusions(result.Entry);
@@ -259,6 +266,8 @@ public class CleaningService
 
                 try
                 {
+                    // Strip ReadOnly/Hidden/System attributes first so File.Delete does not fail with UnauthorizedAccessException
+                    FileLocksmithService.ClearRestrictiveAttributes(file);
                     File.Delete(file);
                     count++;
                     bytes += size;
@@ -266,9 +275,9 @@ public class CleaningService
                     if (!shellRefreshNeeded && ShellNotification.IsShellCacheFile(file))
                         shellRefreshNeeded = true;
                 }
-                catch (IOException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    // Fallback to in-place truncation on locked files (BleachBit FileUtilities._truncate_locked_file)
+                    // Fallback to in-place truncation on locked files (ReadWrite | Delete sharing)
                     if (TryTruncateFile(file))
                     {
                         count++;
@@ -277,9 +286,22 @@ public class CleaningService
                         if (!shellRefreshNeeded && ShellNotification.IsShellCacheFile(file))
                             shellRefreshNeeded = true;
                     }
+                    else if (File.Exists(file))
+                    {
+                        // Track genuinely locked/permission-denied files for PowerToys-style File Locksmith dialog
+                        lockedFiles.Add(new LockedFileItem(file, size, result.Entry.Name, ex.Message));
+                    }
                 }
             }
-            catch { } //in use or already gone; skip silently
+            catch (Exception ex)
+            {
+                if (File.Exists(file))
+                {
+                    long sz = 0;
+                    try { sz = new FileInfo(file).Length; } catch { }
+                    lockedFiles.Add(new LockedFileItem(file, sz, result.Entry.Name, ex.Message));
+                }
+            }
         }
 
         foreach (var regItem in result.RegistryToDelete)
@@ -316,7 +338,7 @@ public class CleaningService
             if (result.FilesToDelete.Any(f => f.Contains(@"\$Recycle.Bin\", StringComparison.OrdinalIgnoreCase)))
                 SHUpdateRecycleBinIcon();
 
-        return (count, bytes);
+        return new CleanOutcome(count, bytes, lockedFiles);
     }
 
     /// <summary>
@@ -337,7 +359,7 @@ public class CleaningService
             if (fi.IsReadOnly)
                 fi.IsReadOnly = false;
 
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
             fs.SetLength(0);
             fs.Flush(true);
             return true;

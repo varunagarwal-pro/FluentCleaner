@@ -175,6 +175,19 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
         await FluentSeedDialog.OpenAsync(ViewModel, XamlRoot, ActualTheme);
     }
 
+    private async void UnlockLockedFiles_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.LastLockedFiles.Count == 0) return;
+
+        var dialog = new FileLocksmithDialog(ViewModel.LastLockedFiles)
+        {
+            XamlRoot       = XamlRoot,
+            RequestedTheme = ActualTheme
+        };
+        await dialog.ShowAsync();
+        ViewModel.RecordAdditionalLocksmithClean(dialog.AdditionalRemovedCount, dialog.AdditionalFreedBytes);
+    }
+
     private void RestartElevated_Click(object sender, RoutedEventArgs e)
     {
         try
