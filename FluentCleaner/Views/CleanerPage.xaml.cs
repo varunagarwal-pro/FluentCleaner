@@ -4,7 +4,7 @@ using FluentCleaner.ViewModels;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
@@ -21,16 +21,22 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
     private bool _isDraggingSplitter;
     private double _dragStartPointerX;
     private double _dragStartColumnWidth;
+    private bool _sortDescending = true;
 
     public CleanerPage()
     {
         InitializeComponent();
         ViewModel.UiDispatcher = DispatcherQueue;
 
+        // Restore remembered pane width from settings
         var savedWidth = AppSettings.Instance.CleanerPaneWidth;
         if (savedWidth >= 240 && savedWidth <= 650)
             LeftPaneColumn.Width = new GridLength(savedWidth);
 
+        ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        ViewModel.Categories.CollectionChanged += OnCategoriesChanged;
+
+        UpdateStatusBar();
         Loaded += async (_, _) =>
         {
             if (Application.Current is App app && app.MainWindow is { } mainWin)
@@ -491,22 +497,7 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
         return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
-    // --- Row Hover Accent -----------------------------------------------------
-
-    private void EntryRow_PointerEntered(object sender, PointerRoutedEventArgs e) =>
-        SetMenuButtonOpacity(sender, 1.0);
-
-    private void EntryRow_PointerExited(object sender, PointerRoutedEventArgs e) =>
-        SetMenuButtonOpacity(sender, 0.35);
-
-    private static void SetMenuButtonOpacity(object sender, double opacity)
-    {
-        if (sender is Grid g)
-            foreach (var btn in g.Children.OfType<Button>())
-                btn.Opacity = opacity;
-    }
-
-    // --- Interactive Pane Splitter (§8.2) -------------------------------------
+    // --- Interactive Pane Splitter --------------------------------------------
 
     private void PaneSplitter_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
@@ -578,4 +569,30 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
         }
         e.Handled = true;
     }
+}
+
+/// <summary>Tree chevron: collapsed points right, expanded points down.</summary>
+public partial class BoolToChevronConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        ((char)(value is true ? 0xE70D : 0xE76C)).ToString();
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotImplementedException();
+}
+
+/// <summary>Type column in the detail list.</summary>
+public partial class PathKindConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language)
+    {
+        if (value is not string s || string.IsNullOrWhiteSpace(s)) return "";
+        if (s.StartsWith("HK", StringComparison.OrdinalIgnoreCase)) return "Registry";
+
+        var ext = Path.GetExtension(s);
+        return string.IsNullOrEmpty(ext) ? "File" : ext.TrimStart('.').ToUpperInvariant();
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotImplementedException();
 }

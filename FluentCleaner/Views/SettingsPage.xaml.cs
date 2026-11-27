@@ -74,7 +74,7 @@ public sealed partial class SettingsPage : Page
     {
         for (int i = 0; i < SettingsNav.Items.Count; i++)
         {
-            if (SettingsNav.Items[i] is ListViewItem item &&
+            if (SettingsNav.Items[i] is FrameworkElement item &&
                 string.Equals(item.Tag as string, section, StringComparison.OrdinalIgnoreCase))
             {
                 SettingsNav.SelectedIndex = i;
@@ -88,22 +88,36 @@ public sealed partial class SettingsPage : Page
     // Sections are shown and hidden in place; no second Frame needed.
     private void SettingsNav_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_navigationReady || SettingsNav.SelectedItem is not ListViewItem item) return;
+        if (!_navigationReady) return;
+        var item = e.AddedItems.FirstOrDefault() as FrameworkElement ?? SettingsNav.SelectedItem as FrameworkElement;
+        if (item is null) return;
+        ShowSettingsSection(item.Tag as string ?? "General");
+    }
+
+    private void SettingsNav_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (!_navigationReady) return;
+        var item = e.ClickedItem as FrameworkElement
+                   ?? SettingsNav.ContainerFromItem(e.ClickedItem) as FrameworkElement;
+        if (item is null) return;
+        SettingsNav.SelectedItem = item;
         ShowSettingsSection(item.Tag as string ?? "General");
     }
 
     private void ShowSettingsSection(string section)
     {
+        bool Is(string name) => string.Equals(section, name, StringComparison.OrdinalIgnoreCase);
+
         AppearanceSection.Visibility = DatabaseSection.Visibility =
-            section == "General" ? Visibility.Visible : Visibility.Collapsed;
-        CookiesSection.Visibility = section == "Cookies" ? Visibility.Visible : Visibility.Collapsed;
-        ExclusionsSection.Visibility = section == "Exclusions" ? Visibility.Visible : Visibility.Collapsed;
-        PostCleanSection.Visibility = section == "Tasks" ? Visibility.Visible : Visibility.Collapsed;
-        HistorySection.Visibility = section == "History" ? Visibility.Visible : Visibility.Collapsed;
-        AiSection.Visibility = section == "AI" ? Visibility.Visible : Visibility.Collapsed;
-        SchedulerSection.Visibility = section == "Scheduler" ? Visibility.Visible : Visibility.Collapsed;
+            Is("General") ? Visibility.Visible : Visibility.Collapsed;
+        CookiesSection.Visibility = Is("Cookies") ? Visibility.Visible : Visibility.Collapsed;
+        ExclusionsSection.Visibility = Is("Exclusions") ? Visibility.Visible : Visibility.Collapsed;
+        PostCleanSection.Visibility = Is("Tasks") ? Visibility.Visible : Visibility.Collapsed;
+        HistorySection.Visibility = Is("History") ? Visibility.Visible : Visibility.Collapsed;
+        AiSection.Visibility = Is("AI") ? Visibility.Visible : Visibility.Collapsed;
+        SchedulerSection.Visibility = Is("Scheduler") ? Visibility.Visible : Visibility.Collapsed;
         BackupSection.Visibility = AboutSection.Visibility =
-            section == "About" ? Visibility.Visible : Visibility.Collapsed;
+            Is("About") ? Visibility.Visible : Visibility.Collapsed;
         SettingsScroll.ChangeView(null, 0, null, true);
     }
 
@@ -114,34 +128,28 @@ public sealed partial class SettingsPage : Page
         if (!_pageReady || _isShowingDialog) return;
         _isShowingDialog = true;
 
-        try
-        {
-            var result = await new ContentDialog
-            {
-                XamlRoot          = XamlRoot,
-                RequestedTheme    = ActualTheme,
-                Title             = ResourceService.Get("DlgRestartTitle"),
-                Content           = ResourceService.Get("DlgRestartMessage"),
-                PrimaryButtonText = ResourceService.Get("DlgRestartNow"),
-                CloseButtonText   = ResourceService.Get("DlgRestartLater"),
-                DefaultButton     = ContentDialogButton.Primary
-            }.ShowAsync();
+        // Only one ContentDialog at a time; the choice is saved either way.
+        if (Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(XamlRoot)
+                .Any(p => p.Child is ContentDialog)) return;
 
-            if (result == ContentDialogResult.Primary)
-            {
-                using var _ = Process.Start(Environment.ProcessPath!);
-                Application.Current.Exit();
-            }
-        }
-        catch (System.Runtime.InteropServices.COMException)
+        var result = await new ContentDialog
         {
-            // Suppress secondary dialog invocation if one is already transitioning
-        }
-        finally
+            XamlRoot          = XamlRoot,
+            RequestedTheme    = ActualTheme,
+            Title             = ResourceService.Get("DlgRestartTitle"),
+            Content           = ResourceService.Get("DlgRestartMessage"),
+            PrimaryButtonText = ResourceService.Get("DlgRestartNow"),
+            CloseButtonText   = ResourceService.Get("DlgRestartLater"),
+            DefaultButton     = ContentDialogButton.Primary
+        }.ShowAsync();
+
+        if (result == ContentDialogResult.Primary)
         {
-            _isShowingDialog = false;
+            Process.Start(Environment.ProcessPath!);
+            Application.Current.Exit();
         }
     }
+
 
     private void DonationBanner_Dismiss(object sender, RoutedEventArgs e) =>
         DonationBanner.IsOpen = false;

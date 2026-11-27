@@ -22,12 +22,25 @@ public partial class CleanerPageViewModel : ObservableObject
     private readonly CustomEntryService _customService = new();
 
     private readonly List<ScanResult> _lastScan = [];       // hand-off between "Analyze" and "Clean"
-    private List<CleanerEntry> _loadedEntries    = [];      // installed main-DB entries + all enabled custom entries
-    private List<string> _lastPaths = [];                   // stored so Refresh can reload without paths re-passed
-    private bool _suppressSave;                             // prevents N disk writes during bulk selection updates
-    private bool _suppressMacroToggle;                      // prevents re-entrant loops when syncing macro-card switches
-    private CancellationTokenSource? _cts;                  // lives only during an active scan or clean
-    private string? _lastAddedExclusionRule;                // supports 1-click Undo Exclusion from InfoBar
+    private List<CleanerEntry> _loadedEntries    = [];      // installed main-DB entries + all enabled custom entries (custom skips IsInstalled)
+    private List<string> _lastPaths = [];                   // stored so Refresh can reload without the paths being passed again
+    private bool _suppressSave;                             // prevents N disk writes when SelectAll/SelectNone fires per-entry callbacks
+    private CancellationTokenSource? _cts;                  // lives only during an active scan or clean; null = nothing running
+    private CancellationTokenSource? _searchDebounceCts;
+
+    // --- Observable state ---------------------------------------------------
+    [ObservableProperty] public partial ObservableCollection<CleanerCategoryViewModel> Categories { get; set; } = [];    // left panel: category tree
+    [ObservableProperty] public partial ObservableCollection<ScanResultLine>           ResultLines { get; set; } = [];    // right panel: per-app results after Analyze
+    [ObservableProperty] public partial ObservableCollection<DetailLine>               DetailLines { get; set; } = [];    // right panel: file/registry paths when a result row is open
+    [ObservableProperty] public partial ScanResultLine?                                SelectedResultLine { get; set; }   // which result row is currently open in detail view
+    [ObservableProperty] public partial string  SearchText { get; set; } = "";                                            // search box
+    [ObservableProperty] public partial string  StatusText { get; set; } = ResourceService.Get("St_Loading");                     // run header above the results
+    [ObservableProperty] public partial string  TotalSize     { get; set; } = "";                                        // sum of all scan results
+    [ObservableProperty] public partial int     CatalogueCount { get; set; }                                             // entries in the databases, before the installed check
+    [ObservableProperty] public partial double  ScanProgress  { get; set; }                                               // 0–100; drives the real progress bar
+    [ObservableProperty] public partial bool    IsBusy        { get; set; }                                               // locked while a scan or clean is running
+    [ObservableProperty] public partial bool    OfferElevation { get; set; }                                              // last clean skipped files and we're not admin: header offers a restart
+
     private static readonly bool IsElevated =
         new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
     public DispatcherQueue? UiDispatcher { get; set; }
@@ -338,15 +351,30 @@ public partial class CleanerPageViewModel : ObservableObject
         RebuildDetailLines(value);
     }
 
+    // Search rebuilds the visible category list from scratch after a 150ms debounce
     partial void OnSearchTextChanged(string value)
     {
-        RebuildVisibleCategories();
-        if (!string.IsNullOrWhiteSpace(value)) SetAllExpanded(true);
-        RefreshCategoryState();
-        StatusText = Categories.Count > 0
-            ? ResourceService.Fmt("St_SearchFound", CountVisibleEntries())
-            : ResourceService.Get("St_SearchNone");
-        OnPropertyChanged(nameof(HasSearchText));
+        OnPropertyChanged(nameof(HasSearchText));   // the footer counts show what the filter left
+        _searchDebounceCts?.Cancel();
+        _searchDebounceCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _searchDebounceCts = cts;
+        _ = ApplyDebouncedSearchAsync(value, cts.Token);
+    }
+
+    private async Task ApplyDebouncedSearchAsync(string value, CancellationToken token)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                await Task.Delay(150, token);
+            if (token.IsCancellationRequested) return;
+
+            RebuildVisibleCategories();
+            if (!string.IsNullOrWhiteSpace(value)) SetAllExpanded(true); //results are useless if they're all collapsed
+            RefreshCategoryState();
+        }
+        catch (OperationCanceledException) { }
     }
 
     partial void OnFilterModeChanged(string value)
