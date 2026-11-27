@@ -714,7 +714,23 @@ public partial class CleanerPageViewModel : ObservableObject
                 return;
             }
 
-            var (removed, freedBytes) = await _cleaner.CleanAsync(result, new Progress<string>(msg => StatusText = msg), cts.Token);
+            LastLockedFiles.Clear();
+            HasLockedFiles = false;
+            if (result.LockedFiles.Count > 0)
+            {
+                foreach (var (fp, sz) in result.LockedFiles)
+                    LastLockedFiles.Add(new LockedFileItem(fp, sz, result.Entry.Name, "Locked at scan"));
+            }
+
+            var outcome = await _cleaner.CleanDetailedAsync(result, new Progress<string>(msg => StatusText = msg), cts.Token);
+            var (removed, freedBytes) = (outcome.RemovedCount, outcome.FreedBytes);
+            if (outcome.LockedFiles.Count > 0)
+                LastLockedFiles.AddRange(outcome.LockedFiles);
+
+            HasLockedFiles = LastLockedFiles.Count > 0;
+            if (HasLockedFiles)
+                UnlockFilesLabel = $"Unlock Files ({LastLockedFiles.Count:N0} · {ScanResult.FormatBytes(LastLockedFiles.Sum(f => f.SizeBytes))})";
+
             RemoveScanResult(result);
             entryVm.SizeText     = "";
             entryVm.ScannedBytes = 0;
@@ -792,8 +808,13 @@ public partial class CleanerPageViewModel : ObservableObject
         foreach (var vm in selected.Where(vm => !_lastScan.Any(r => r.Entry == vm.Entry)))
             await AnalyzeEntryInternalAsync(vm.Entry, progress, keepDetailSelection: false);
 
+        LastLockedFiles.Clear();
+        HasLockedFiles = false;
         var results               = _lastScan.Where(r => selected.Any(vm => vm.Entry == r.Entry)).ToList();
         var (removed, freedBytes) = await CleanResultsAsync(results, progress);
+        HasLockedFiles            = LastLockedFiles.Count > 0;
+        if (HasLockedFiles)
+            UnlockFilesLabel      = $"Unlock Files ({LastLockedFiles.Count:N0} · {ScanResult.FormatBytes(LastLockedFiles.Sum(f => f.SizeBytes))})";
 
         UpdateTotalsFromLastScan();
         RefreshAllCategoryAndMacroStats();
@@ -1452,6 +1473,10 @@ public partial class ScanResultLine : ObservableObject
 
     public bool HasAppIcon => AppIconBitmap is not null;
     public bool ShowChevron => Result is not null;
+    public bool HasLockedFiles => Result is { LockedFiles.Count: > 0 };
+    public string LockedLabel => Result is { LockedFiles.Count: > 0 }
+        ? $"{Result.LockedFiles.Count:N0} locked ({ScanResult.FormatBytes(Result.LockedBytes)})"
+        : "";
 
     public ScanResultLine(
         string appName,

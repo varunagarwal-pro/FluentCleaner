@@ -185,7 +185,7 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
             RequestedTheme = ActualTheme
         };
         await dialog.ShowAsync();
-        ViewModel.RecordAdditionalLocksmithClean(dialog.AdditionalRemovedCount, dialog.AdditionalFreedBytes);
+        ViewModel.RecordAdditionalLocksmithClean(dialog.AdditionalRemovedCount, dialog.AdditionalFreedBytes, dialog.RemainingLockedFiles);
     }
 
     private void RestartElevated_Click(object sender, RoutedEventArgs e)
