@@ -1,0 +1,100 @@
+# CodeRabbit Master Review Configuration — FluentCleaner
+# Reference: D:\SentinelLabs\Docs\CodeRabbit.md
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+version: 2
+language: "en-US"
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: false
+  high_level_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  changed_files_summary: true
+  collapse_walkthrough: true
+  poem: false
+  in_progress_fortune: false
+  review_status: true
+  commit_status: true
+  enable_prompt_for_ai_agents: true
+
+  slop_detection:
+    enabled: true
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - "main"
+      - "custom"
+      - "feat/**"
+      - "fix/**"
+      - "perf/**"
+
+  finishing_touches:
+    autofix:
+      enabled: true
+    fix_ci:
+      enabled: true
+    resolve_merge_conflict:
+      enabled: true
+    docstrings:
+      enabled: true
+    unit_tests:
+      enabled: true
+
+  tools:
+    ast-grep:
+      enabled: true
+    shellcheck:
+      enabled: true
+    psscriptanalyzer:
+      enabled: true
+    markdownlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    semgrep:
+      enabled: true
+    trivy:
+      enabled: true
+
+  path_filters:
+    - "!**/temp/**"
+    - "!**/bin/**"
+    - "!**/obj/**"
+    - "!**/*.log"
+    - "!Winapp2.ini"
+
+  path_instructions:
+    - path: "FluentCleaner/**/*.cs"
+      instructions: |
+        Ensure 64-bit compatibility (win-x64 / win-arm64), NativeAOT safety (no unannotated reflection),
+        off-UI-thread async I/O, and thread-safe UI dispatcher updates.
+    - path: "FluentCleaner.Core/**/*.cs"
+      instructions: |
+        Maintain netstandard2.0 compatibility for shared use across WinUI 3 and Classic (.NET Framework 4.8).
+    - path: "**"
+      instructions: |
+        Zero tolerance for telemetry, scareware, fake registry cleaners, or mojibake/encoding corruption.
+        Enforce UTF-8 without BOM and UNIX LF line endings across all text files.
+
+knowledge_base:
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
+  learnings:
+    scope: "auto"
+
+chat:
+  auto_reply: true

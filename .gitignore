@@ -426,3 +426,10 @@ FodyWeavers.xsd
 !/FluentCleaner.Classic/WHY_CLASSIC_IS_CLOSED_SOURCE.md
 
 /desktop.ini
+
+# SentinelLabs Governance & Agentic Camouflage Secrets
+.astra
+*.astra
+/temp/
+varun.txt
+
