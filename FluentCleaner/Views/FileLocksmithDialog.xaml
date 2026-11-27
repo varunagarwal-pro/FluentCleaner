@@ -23,7 +23,7 @@
         <StackPanel Grid.Row="0" Spacing="4">
             <TextBlock x:Name="DialogSummaryText"
                        Style="{StaticResource BodyStrongTextBlockStyle}"
-                       Text="Analyzing file locks via Windows Restart Manager…" />
+                       Text="Analyzing file locks…" />
             <TextBlock Text="Expand any process to inspect or exclude specific locked file paths, close user apps holding locks, or schedule OS-locked files for deletion on your next reboot."
                        FontSize="12"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -48,7 +48,7 @@
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="8">
                 <TextBlock x:Name="EmptyProcessesText"
-                           Text="No user applications reported holding direct Restart Manager locks. Remaining files are likely locked by Windows kernel/services or require elevation — use 'Schedule Remaining on Reboot' below."
+                           Text="No user-space applications are holding locks on the remaining files. They are likely held by Windows kernel components or system services — use 'Schedule Remaining on Reboot' below."
                            FontSize="12"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap"

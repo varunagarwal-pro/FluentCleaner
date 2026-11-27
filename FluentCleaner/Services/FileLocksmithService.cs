@@ -338,7 +338,7 @@ public static class FileLocksmithService
                 if (!string.IsNullOrEmpty(kernelName) && kernelLookup.TryGetValue(kernelName, out var item))
                 {
                     EnsureProcessNames(pid, ref procName, ref displayName);
-                    AddLockedItem(byPid, pid, procName, displayName, item);
+                    AddLockedItem(byPid, pid, procName ?? $"PID {pid}", displayName ?? procName ?? $"PID {pid}", item);
                     attributedPaths.TryAdd(item.FilePath, 0);
                 }
             }
@@ -390,7 +390,7 @@ public static class FileLocksmithService
                 if (!string.IsNullOrEmpty(kernelName) && kernelLookup.TryGetValue(kernelName, out var item))
                 {
                     EnsureProcessNames(pid, ref procName, ref displayName);
-                    AddLockedItem(byPid, pid, procName, displayName, item);
+                    AddLockedItem(byPid, pid, procName ?? $"PID {pid}", displayName ?? procName ?? $"PID {pid}", item);
                     attributedPaths.TryAdd(item.FilePath, 0);
                 }
             }
