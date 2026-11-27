@@ -95,7 +95,7 @@ public sealed partial class TweaksPage : Page, ISearchablePage, IPageActions, IR
             using var reg = Registry.CurrentUser.CreateSubKey(
                 @"Software\Microsoft\Windows\CurrentVersion\Applets\Regedit", true);
             reg?.SetValue("LastKey", key, RegistryValueKind.String);
-            Process.Start(new ProcessStartInfo("regedit.exe") { UseShellExecute = true });
+            using var _ = Process.Start(new ProcessStartInfo("regedit.exe") { UseShellExecute = true });
         }
         catch (Exception ex) { ViewModel.StatusText = ex.Message; }
     }

@@ -176,7 +176,7 @@
 
 #### Branch: `custom`
 - ✅ **12.1** — **Scaffold `FluentCleaner.Tests` (xUnit, `net10.0-windows10.0.19041.0`, `x64`):** Create 64-bit test project and verify `dotnet test -p:Platform=x64` baseline passes, then commit locally on `custom`.
-- ⬜ **12.2** — **Kernel `Process` Handle Leak Cleanup (v6-4):** Wrap all 9 `Process.Start(...)` call sites (`PluginPaths.cs`, `TweaksPage.xaml.cs`, `WindowsActions.cs`, `SilentRunner.cs`, `CleanerPage.xaml.cs`, `CustomPage.xaml.cs` ×2, `SettingsPage.xaml.cs` ×2) in `using var _ = ...`, verify build, and commit locally on `custom`.
+- ✅ **12.2** — **Kernel `Process` Handle Leak Cleanup (v6-4):** Wrap all 9 `Process.Start(...)` call sites (`PluginPaths.cs`, `TweaksPage.xaml.cs`, `WindowsActions.cs`, `SilentRunner.cs`, `CleanerPage.xaml.cs`, `CustomPage.xaml.cs` ×2, `SettingsPage.xaml.cs` ×2) in `using var _ = ...`, verify build, and commit locally on `custom`.
 
 #### Branch: `feat/regex-path-filtering`
 - ⬜ **12.3** — **ReDoS Hardening on Wildcard Regex Matching (v6-3):** Write failing TDD test for 250ms `MatchTimeout` on `FileKeyEntry.Parse`, add `TimeSpan.FromMilliseconds(250)` in `FileKeyEntry.cs` and `SafeIsMatch` catching `RegexMatchTimeoutException` in `CleaningService.cs`, verify tests + build, and commit locally on `feat/regex-path-filtering`.

@@ -9,6 +9,8 @@ internal static class PluginPaths
         Path.Combine(AppContext.BaseDirectory, "Plugins", plugin);
 
     // opens Explorer with the rules file selected (footer link)
-    public static void Reveal(string plugin, string file) =>
-        System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{Path.Combine(Dir(plugin), file)}\"");
+    public static void Reveal(string plugin, string file)
+    {
+        using var _ = System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{Path.Combine(Dir(plugin), file)}\"");
+    }
 }

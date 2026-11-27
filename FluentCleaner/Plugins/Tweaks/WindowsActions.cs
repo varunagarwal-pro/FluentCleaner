@@ -38,7 +38,9 @@ internal static class WindowsActions
             foreach (var process in running) process.Dispose();
             //windows usually restarts it by itself, this is just the fallback
             if (!shellReturned)
-                Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true });
+            {
+                using var _ = Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = true });
+            }
         }
         catch { }
     }

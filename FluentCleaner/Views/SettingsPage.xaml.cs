@@ -129,7 +129,7 @@ public sealed partial class SettingsPage : Page
 
             if (result == ContentDialogResult.Primary)
             {
-                Process.Start(Environment.ProcessPath!);
+                using var _ = Process.Start(Environment.ProcessPath!);
                 Application.Current.Exit();
             }
         }
@@ -293,7 +293,7 @@ public sealed partial class SettingsPage : Page
     {
         try
         {
-            Process.Start(new ProcessStartInfo("taskschd.msc") { UseShellExecute = true });
+            using var _ = Process.Start(new ProcessStartInfo("taskschd.msc") { UseShellExecute = true });
         }
         catch { }
     }

@@ -243,7 +243,7 @@ public sealed partial class CleanerPage : Page, ISearchablePage, IPageActions
         var path = line.Text;
         if (string.IsNullOrWhiteSpace(path) || path.StartsWith("HK", StringComparison.OrdinalIgnoreCase)) return;
 
-        System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+        using var _ = System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
     }
 
     private void ExcludeFileInline_Click(object sender, RoutedEventArgs e)

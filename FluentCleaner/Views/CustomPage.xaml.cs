@@ -73,7 +73,7 @@ public sealed partial class CustomPage : Page, IPageActions, ISearchablePage
     private void OpenFolderHeader_Click(object sender, RoutedEventArgs e)
     {
         Directory.CreateDirectory(CustomEntryService.CustomDir);
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        using var _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
             FileName        = CustomEntryService.CustomDir,
             UseShellExecute = true
@@ -89,7 +89,7 @@ public sealed partial class CustomPage : Page, IPageActions, ISearchablePage
         flyout.AddItem(ResourceService.Get("St_CustomMenuOpenFolder"), () =>
         {
             Directory.CreateDirectory(CustomEntryService.CustomDir);
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            using var _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName        = CustomEntryService.CustomDir,
                 UseShellExecute = true

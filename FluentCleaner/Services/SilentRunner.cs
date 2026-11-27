@@ -78,7 +78,9 @@ public static class SilentRunner
         await RunPostCleanTasksAsync();
 
         if (shutdown)
-            System.Diagnostics.Process.Start("shutdown.exe", "/s /t 0");
+        {
+            using var _ = System.Diagnostics.Process.Start("shutdown.exe", "/s /t 0");
+        }
 
         Microsoft.UI.Xaml.Application.Current.Exit();
     }
