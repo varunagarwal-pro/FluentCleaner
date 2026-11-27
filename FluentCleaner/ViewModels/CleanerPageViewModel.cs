@@ -33,6 +33,7 @@ public partial class CleanerPageViewModel : ObservableObject
     // --- Observable state ---------------------------------------------------
     [ObservableProperty] public partial int     CatalogueCount { get; set; }
     [ObservableProperty] public partial bool    OfferElevation { get; set; }
+    [ObservableProperty] public partial string  ScanTelemetryText { get; set; } = "";
 
     private static readonly bool IsElevated =
         new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
@@ -534,6 +535,8 @@ public partial class CleanerPageViewModel : ObservableObject
         {
             long totalBytes = 0; int totalFiles = 0; int totalReg = 0; int done = 0;
             int total = selected.Count;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            ScanTelemetryText = ScanProgressEstimator.Estimate(0, total, TimeSpan.Zero).DisplayText;
             var progress = new ThrottledProgress(new Progress<string>(msg => StatusText = msg));
 
             await AnalyzeEntriesParallelAsync(selected, progress, keepDetailSelection: false, cts.Token, result =>
@@ -543,7 +546,9 @@ public partial class CleanerPageViewModel : ObservableObject
                 totalReg   += result.RegistryToDelete.Count;
                 TotalBytesScanned = totalBytes;
                 TotalSize         = ScanResult.FormatBytes(totalBytes);
-                ScanProgress      = ++done * 100.0 / total;
+                var snap = ScanProgressEstimator.Estimate(++done, total, sw.Elapsed);
+                ScanProgress      = snap.Percent;
+                ScanTelemetryText = snap.DisplayText;
             });
             SortResultLinesBySize(descending: true);
             RefreshAllCategoryAndMacroStats();
@@ -561,8 +566,9 @@ public partial class CleanerPageViewModel : ObservableObject
         }
         finally
         {
-            _cts   = null;
-            IsBusy = false;
+            _cts              = null;
+            IsBusy            = false;
+            ScanTelemetryText = "";
         }
     }
 
@@ -661,8 +667,9 @@ public partial class CleanerPageViewModel : ObservableObject
         }
         finally
         {
-            _cts   = null;
-            IsBusy = false;
+            _cts              = null;
+            IsBusy            = false;
+            ScanTelemetryText = "";
         }
 
         if (AppSettings.Instance.CleanHistoryEnabled && freedBytes > 0)
@@ -737,8 +744,9 @@ public partial class CleanerPageViewModel : ObservableObject
         }
         finally
         {
-            _cts   = null;
-            IsBusy = false;
+            _cts              = null;
+            IsBusy            = false;
+            ScanTelemetryText = "";
         }
     }
 
@@ -810,8 +818,9 @@ public partial class CleanerPageViewModel : ObservableObject
         }
         finally
         {
-            _cts   = null;
-            IsBusy = false;
+            _cts              = null;
+            IsBusy            = false;
+            ScanTelemetryText = "";
         }
     }
 
@@ -851,8 +860,9 @@ public partial class CleanerPageViewModel : ObservableObject
         }
         finally
         {
-            _cts   = null;
-            IsBusy = false;
+            _cts              = null;
+            IsBusy            = false;
+            ScanTelemetryText = "";
         }
     }
 
