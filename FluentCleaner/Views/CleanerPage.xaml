@@ -295,10 +295,12 @@
                  Title="{x:Bind ViewModel.BannerTitle, Mode=OneWay}"
                  Message="{x:Bind ViewModel.BannerMessage, Mode=OneWay}">
             <InfoBar.ActionButton>
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Content="Undo"
-                            Command="{x:Bind ViewModel.UndoLastExclusionCommand}"
-                            Visibility="{x:Bind ViewModel.CanUndoExclusion, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+                <Button Content="Undo"
+                        Command="{x:Bind ViewModel.UndoLastExclusionCommand}"
+                        Visibility="{x:Bind ViewModel.CanUndoExclusion, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+            </InfoBar.ActionButton>
+            <InfoBar.Content>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0">
                     <Button Content="{x:Bind ViewModel.UnlockFilesLabel, Mode=OneWay}"
                             Click="UnlockLockedFiles_Click"
                             Style="{StaticResource DarkSecondaryButtonStyle}"
@@ -309,7 +311,7 @@
                             Style="{StaticResource ElectricAccentButtonStyle}"
                             Visibility="{x:Bind ViewModel.CanOfferElevation, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
                 </StackPanel>
-            </InfoBar.ActionButton>
+            </InfoBar.Content>
         </InfoBar>
 
         <!-- =================================================================== -->
